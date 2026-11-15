@@ -1,0 +1,17 @@
+{
+  "name": "gw2-ai",
+  "description": "Guild Wars 2 tools for AI assistants: MCP servers and skills for account data, trading post prices, crafting, goal planning and the GW2 wiki.",
+  "owner": {
+    "name": "Christopher Davenport",
+    "url": "https://github.com/ChristopherDavenport"
+  },
+  "plugins": [
+    {
+      "name": "gw2-ai",
+      "source": "./",
+      "description": "MCP servers for your GW2 account, game data and the wiki, plus skills for account questions, trading and crafting, goal planning, and GW2 API code.",
+      "category": "gaming",
+      "tags": ["guild-wars-2", "gw2", "mcp"]
+    }
+  ]
+}

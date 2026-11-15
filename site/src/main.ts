@@ -1,0 +1,475 @@
+import {
+  ALL_PERMISSIONS,
+  Gw2ApiError,
+  Gw2Client,
+  PERMISSION_HELP,
+  SECTIONS,
+  TTL,
+  buildReport,
+  looksLikeApiKey,
+  missingPermissions,
+  tokenInfo,
+  type Report,
+  type SectionResult,
+  type TokenInfo,
+} from '@gw2-ai/core';
+import { IdbCache } from './cache-store.js';
+import { reportFilename } from './filename.js';
+import { renderMarkdown } from './markdown.js';
+import * as vault from './vault.js';
+import './style.css';
+
+// ---- DOM helpers ----------------------------------------------------------
+
+function $<T extends HTMLElement = HTMLElement>(id: string): T {
+  const node = document.getElementById(id);
+  if (!node) throw new Error(`missing #${id}`);
+  return node as T;
+}
+
+function el<K extends keyof HTMLElementTagNameMap>(
+  tag: K,
+  props: { className?: string; text?: string } = {},
+  ...children: (Node | string)[]
+): HTMLElementTagNameMap[K] {
+  const node = document.createElement(tag);
+  if (props.className) node.className = props.className;
+  if (props.text !== undefined) node.textContent = props.text;
+  node.append(...children);
+  return node;
+}
+
+type Tone = 'info' | 'ok' | 'error';
+
+function setStatus(node: HTMLElement, text: string, tone: Tone = 'info'): void {
+  node.textContent = text;
+  node.dataset.tone = tone;
+}
+
+// ---- Elements -------------------------------------------------------------
+
+const keyForm = $<HTMLFormElement>('key-form');
+const keyInput = $<HTMLInputElement>('key-input');
+const keySubmit = $<HTMLButtonElement>('key-submit');
+const keyShow = $<HTMLInputElement>('key-show');
+const keySaved = $('key-saved');
+const keyName = $('key-name');
+const keyOrigin = $('key-origin');
+const keyForget = $<HTMLButtonElement>('key-forget');
+const keyStatus = $('key-status');
+const keyDetails = $('key-details');
+const permList = $('perm-list');
+const permWarning = $('perm-warning');
+
+const reportForm = $<HTMLFormElement>('report-form');
+const sectionList = $('section-list');
+const optValuation = $<HTMLInputElement>('opt-valuation');
+const generateBtn = $<HTMLButtonElement>('generate');
+const generateHint = $('generate-hint');
+const reportStatus = $('report-status');
+const progressList = $('progress');
+
+const output = $('output');
+const raw = $<HTMLTextAreaElement>('raw');
+const preview = $('panel-preview');
+const copyStatus = $('copy-status');
+const sectionCopy = $('section-copy');
+const tabs = [$<HTMLButtonElement>('tab-raw'), $<HTMLButtonElement>('tab-preview')];
+
+// ---- State ----------------------------------------------------------------
+
+const cache = new IdbCache();
+let client: Gw2Client | undefined;
+let token: TokenInfo | undefined;
+let report: Report | undefined;
+let accountName = 'account';
+let generating = false;
+
+// ---- Key handling ---------------------------------------------------------
+
+function describeError(err: unknown): string {
+  if (err instanceof Gw2ApiError) {
+    if (err.isAuthError) return `The GW2 API rejected this key: ${err.text}`;
+    if (err.status === 0) return `Couldn't reach api.guildwars2.com (${err.text}). Check your connection and try again.`;
+    return `The GW2 API returned an error (${err.status}): ${err.text}`;
+  }
+  return err instanceof Error ? err.message : String(err);
+}
+
+async function checkKey(key: string): Promise<{ c: Gw2Client; info: TokenInfo }> {
+  const c = new Gw2Client({ apiKey: key, cache });
+  const info = await tokenInfo(c);
+  return { c, info };
+}
+
+function showKey(info: TokenInfo | undefined, origin: string): void {
+  keyForm.hidden = true;
+  keySaved.hidden = false;
+  keyName.textContent = info ? `"${info.name}"` : '(not checked)';
+  keyOrigin.textContent = origin;
+  renderPermissions(info);
+  renderSections();
+}
+
+function showKeyForm(): void {
+  keyForm.hidden = false;
+  keySaved.hidden = true;
+  keyDetails.hidden = true;
+  renderSections();
+}
+
+function renderPermissions(info: TokenInfo | undefined): void {
+  permList.replaceChildren();
+  if (!info) {
+    keyDetails.hidden = true;
+    return;
+  }
+  keyDetails.hidden = false;
+  const have = new Set(info.permissions);
+  for (const p of ALL_PERMISSIONS) {
+    const granted = have.has(p);
+    permList.append(
+      el(
+        'li',
+        { className: granted ? 'granted' : 'missing' },
+        el('span', { className: 'badge', text: granted ? 'granted' : 'not granted' }),
+        el('code', { text: p }),
+        el('span', { className: 'muted', text: ` ${PERMISSION_HELP[p]}` }),
+      ),
+    );
+  }
+  const uncovered = SECTIONS.filter((s) => missingPermissions(info, s.permissions).length);
+  permWarning.replaceChildren();
+  permWarning.hidden = uncovered.length === 0;
+  if (uncovered.length) {
+    permWarning.append(
+      el('p', { text: 'This key can\'t produce these sections:' }),
+      el(
+        'ul',
+        {},
+        ...uncovered.map((s) =>
+          el('li', { text: `${s.title} (needs ${missingPermissions(info, s.permissions).join(', ')})` }),
+        ),
+      ),
+      el('p', { text: 'To include them, create a key with those permissions too.' }),
+    );
+  }
+}
+
+keyShow.addEventListener('change', () => {
+  keyInput.type = keyShow.checked ? 'text' : 'password';
+});
+
+keyForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void submitKey();
+});
+
+async function submitKey(): Promise<void> {
+  const key = keyInput.value.trim();
+  if (!key) {
+    setStatus(keyStatus, 'Paste your API key first.', 'error');
+    keyInput.focus();
+    return;
+  }
+  if (!looksLikeApiKey(key)) {
+    setStatus(
+      keyStatus,
+      'That doesn\'t look like a GW2 API key. Keys are 72 characters of letters, digits and dashes, like XXXXXXXX-XXXX-...-XXXXXXXXXXXX.',
+      'error',
+    );
+    keyInput.setAttribute('aria-invalid', 'true');
+    keyInput.focus();
+    return;
+  }
+  keyInput.removeAttribute('aria-invalid');
+  keySubmit.disabled = true;
+  keyInput.disabled = true;
+  setStatus(keyStatus, 'Checking the key with api.guildwars2.com...');
+  try {
+    const checked = await checkKey(key);
+    let origin = 'saved, encrypted, in this browser.';
+    try {
+      await vault.saveKey(key);
+    } catch (err) {
+      vault.useForSession(key);
+      origin = `for this visit only: it couldn't be saved in this browser (${describeError(err)}).`;
+    }
+    client = checked.c;
+    token = checked.info;
+    keyInput.value = '';
+    showKey(token, origin);
+    setStatus(keyStatus, `Key accepted. Permissions: ${token.permissions.join(', ')}.`, 'ok');
+    generateBtn.focus();
+  } catch (err) {
+    keyInput.setAttribute('aria-invalid', 'true');
+    setStatus(keyStatus, describeError(err), 'error');
+  } finally {
+    keySubmit.disabled = false;
+    keyInput.disabled = false;
+  }
+}
+
+keyForget.addEventListener('click', () => {
+  void forget();
+});
+
+async function forget(): Promise<void> {
+  try {
+    await vault.forgetKey();
+    setStatus(keyStatus, 'Key deleted from this browser.', 'ok');
+  } catch (err) {
+    vault.clearSession();
+    setStatus(keyStatus, `Couldn't delete the saved key: ${describeError(err)}`, 'error');
+  }
+  client = undefined;
+  token = undefined;
+  report = undefined;
+  output.hidden = true;
+  raw.value = '';
+  preview.replaceChildren();
+  sectionCopy.replaceChildren();
+  progressList.hidden = true;
+  progressList.replaceChildren();
+  setStatus(reportStatus, '');
+  showKeyForm();
+  keyInput.focus();
+}
+
+async function restoreKey(): Promise<void> {
+  let key: string | undefined;
+  try {
+    if (!(await vault.hasSavedKey())) return;
+    key = await vault.loadKey();
+  } catch (err) {
+    showKey(undefined, '');
+    setStatus(keyStatus, describeError(err), 'error');
+    return;
+  }
+  if (!key) return;
+  client = new Gw2Client({ apiKey: key, cache });
+  showKey(undefined, 'saved, encrypted, in this browser.');
+  setStatus(keyStatus, 'Checking the saved key...');
+  try {
+    token = await tokenInfo(client);
+    showKey(token, 'saved, encrypted, in this browser.');
+    setStatus(keyStatus, '');
+  } catch (err) {
+    setStatus(keyStatus, `${describeError(err)}. If the key was deleted or changed, forget it and enter a new one.`, 'error');
+  }
+}
+
+// ---- Sections -------------------------------------------------------------
+
+function sectionBoxes(): HTMLInputElement[] {
+  return [...sectionList.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+}
+
+function renderSections(): void {
+  const previous = new Map(sectionBoxes().map((b) => [b.value, b.checked]));
+  sectionList.replaceChildren();
+  for (const s of SECTIONS) {
+    const id = `sec-${s.id}`;
+    const box = el('input');
+    box.type = 'checkbox';
+    box.id = id;
+    box.value = s.id;
+    const missing = token ? missingPermissions(token, s.permissions) : [];
+    box.disabled = missing.length > 0;
+    box.checked = !box.disabled && (previous.get(s.id) ?? true);
+
+    const label = el('label', { className: 'option' });
+    label.htmlFor = id;
+    const text = el(
+      'span',
+      {},
+      el('span', { className: 'option-title', text: s.title }),
+      el('span', { className: 'option-help', text: s.summary }),
+    );
+    if (missing.length) {
+      const reasonId = `${id}-reason`;
+      const reason = el('span', { className: 'option-reason', text: `Needs permission: ${missing.join(', ')}` });
+      reason.id = reasonId;
+      box.setAttribute('aria-describedby', reasonId);
+      text.append(reason);
+    }
+    label.append(box, text);
+    sectionList.append(el('li', { className: missing.length ? 'disabled' : '' }, label));
+  }
+  updateGenerate();
+}
+
+function updateGenerate(): void {
+  generateBtn.disabled = generating || !client;
+  generateHint.hidden = Boolean(client);
+}
+
+$('select-all').addEventListener('click', () => {
+  for (const b of sectionBoxes()) if (!b.disabled) b.checked = true;
+});
+$('select-none').addEventListener('click', () => {
+  for (const b of sectionBoxes()) b.checked = false;
+});
+
+// ---- Generate -------------------------------------------------------------
+
+reportForm.addEventListener('submit', (event) => {
+  event.preventDefault();
+  void generate();
+});
+
+const STATUS_LABEL: Record<SectionResult['status'] | 'pending', string> = {
+  pending: 'working',
+  ok: 'done',
+  skipped: 'skipped',
+  error: 'failed',
+};
+
+async function generate(): Promise<void> {
+  if (!client || generating) return;
+  const chosen = sectionBoxes().filter((b) => b.checked && !b.disabled).map((b) => b.value);
+  if (!chosen.length) {
+    setStatus(reportStatus, 'Pick at least one section.', 'error');
+    return;
+  }
+  generating = true;
+  updateGenerate();
+  setStatus(reportStatus, `Generating ${chosen.length} section${chosen.length === 1 ? '' : 's'}...`);
+
+  const rows = new Map<string, HTMLLIElement>();
+  progressList.replaceChildren();
+  for (const id of chosen) {
+    const title = SECTIONS.find((s) => s.id === id)?.title ?? id;
+    const row = el('li', {}, el('span', { className: 'progress-title', text: title }), progressBadge('pending'));
+    row.dataset.status = 'pending';
+    rows.set(id, row);
+    progressList.append(row);
+  }
+  progressList.hidden = false;
+
+  const started = performance.now();
+  try {
+    const result = await buildReport(client, {
+      sections: chosen,
+      valuation: optValuation.checked,
+      onSection: (r) => {
+        const row = rows.get(r.id);
+        if (!row) return;
+        row.dataset.status = r.status;
+        row.replaceChildren(el('span', { className: 'progress-title', text: r.title }), progressBadge(r.status));
+        if (r.reason) row.append(el('span', { className: 'progress-reason', text: r.reason }));
+      },
+    });
+    accountName = await fetchAccountName(client);
+    report = result;
+    showReport(result);
+    const failed = result.sections.filter((s) => s.status !== 'ok').length;
+    const secs = ((performance.now() - started) / 1000).toFixed(1);
+    setStatus(
+      reportStatus,
+      failed
+        ? `Report ready in ${secs}s. ${failed} section${failed === 1 ? '' : 's'} skipped or failed; see the list below.`
+        : `Report ready in ${secs}s.`,
+      failed ? 'info' : 'ok',
+    );
+  } catch (err) {
+    setStatus(reportStatus, describeError(err), 'error');
+  } finally {
+    generating = false;
+    updateGenerate();
+    void cache.flush();
+  }
+}
+
+function progressBadge(status: SectionResult['status'] | 'pending'): HTMLSpanElement {
+  return el('span', { className: `badge status-${status}`, text: STATUS_LABEL[status] });
+}
+
+async function fetchAccountName(c: Gw2Client): Promise<string> {
+  try {
+    const account = await c.get<{ name: string }>('/v2/account', { auth: true, ttlMs: TTL.account });
+    return account.name;
+  } catch {
+    return 'account';
+  }
+}
+
+// ---- Output ---------------------------------------------------------------
+
+function showReport(r: Report): void {
+  raw.value = r.markdown;
+  preview.replaceChildren(renderMarkdown(r.markdown));
+  sectionCopy.replaceChildren();
+  for (const s of r.sections) {
+    const btn = el('button', { text: `Copy "${s.title}"` });
+    btn.type = 'button';
+    btn.addEventListener('click', () => void copy(`## ${s.title}\n\n${s.markdown}\n`, `"${s.title}"`));
+    const li = el('li', {}, btn);
+    if (s.status !== 'ok') li.append(el('span', { className: 'muted', text: ` (${STATUS_LABEL[s.status]})` }));
+    sectionCopy.append(li);
+  }
+  setStatus(copyStatus, '');
+  output.hidden = false;
+  output.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+async function copy(text: string, what: string): Promise<void> {
+  try {
+    await navigator.clipboard.writeText(text);
+    setStatus(copyStatus, `Copied ${what} to the clipboard.`, 'ok');
+  } catch {
+    // Clipboard API can be unavailable (permissions, insecure context): select the text instead.
+    selectTab(0);
+    raw.focus();
+    raw.select();
+    setStatus(copyStatus, 'Couldn\'t copy automatically. The markdown is selected: press Ctrl+C (Cmd+C on Mac).', 'error');
+  }
+}
+
+$('copy-all').addEventListener('click', () => {
+  if (report) void copy(report.markdown, 'the report');
+});
+
+$('download').addEventListener('click', () => {
+  if (!report) return;
+  const blob = new Blob([report.markdown], { type: 'text/markdown;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const a = el('a');
+  a.href = url;
+  a.download = reportFilename(accountName, new Date());
+  document.body.append(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 10_000);
+  setStatus(copyStatus, `Downloaded ${a.download}.`, 'ok');
+});
+
+function selectTab(index: number): void {
+  tabs.forEach((tab, i) => {
+    const selected = i === index;
+    tab.setAttribute('aria-selected', String(selected));
+    tab.tabIndex = selected ? 0 : -1;
+    const panel = $(tab.getAttribute('aria-controls') ?? '');
+    panel.hidden = !selected;
+  });
+}
+
+tabs.forEach((tab, i) => {
+  tab.addEventListener('click', () => selectTab(i));
+  tab.addEventListener('keydown', (event) => {
+    let next: number | undefined;
+    if (event.key === 'ArrowRight') next = (i + 1) % tabs.length;
+    else if (event.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
+    else if (event.key === 'Home') next = 0;
+    else if (event.key === 'End') next = tabs.length - 1;
+    if (next === undefined) return;
+    event.preventDefault();
+    selectTab(next);
+    tabs[next]?.focus();
+  });
+});
+
+// ---- Start ----------------------------------------------------------------
+
+renderSections();
+void restoreKey();

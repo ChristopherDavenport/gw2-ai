@@ -132,3 +132,12 @@ describe('format', () => {
     expect(looksLikeApiKey('hello')).toBe(false);
   });
 });
+
+describe('markdown escaping', () => {
+  it('neutralises player-controlled names', () => {
+    expect(fmt.text('Report <b>key</b> [x](http://e) **y**')).toBe(
+      'Report \\<b\\>key\\</b\\> \\[x\\](http://e) \\*\\*y\\*\\*',
+    );
+    expect(fmt.cell('# a_b <i>')).toBe('# a_b \\<i\\>');
+  });
+});

@@ -1,5 +1,5 @@
 import { MemoryCache, TTL, type CacheStore } from './cache.js';
-import { RateLimiter } from './rate-limit.js';
+import { RateLimiter, sleep } from './rate-limit.js';
 
 export const WIKI_BASE = 'https://wiki.guildwars2.com';
 const API = `${WIKI_BASE}/api.php`;
@@ -126,13 +126,35 @@ export class WikiClient {
     const hit = await this.#cache.get(key);
     if (hit !== undefined) return hit as T;
 
-    await this.#limiter.take();
-    const res = await this.#fetch(url, { headers: this.#headers });
-    if (!res.ok) throw new Error(`GW2 wiki ${res.status} for ${params.action}`);
+    const res = await this.#fetchWithRetry(url, String(params.action));
     const body = (await res.json()) as T & { error?: { info?: string } };
     if (body.error) throw new Error(`GW2 wiki error: ${body.error.info ?? 'unknown'}`);
     await this.#cache.set(key, body, TTL.static);
     return body;
+  }
+
+  /** The wiki is slow and returns occasional 503s under load; retry those. */
+  async #fetchWithRetry(url: URL, action: string, retries = 2): Promise<Response> {
+    for (let attempt = 0; ; attempt++) {
+      await this.#limiter.take();
+      let res: Response;
+      try {
+        res = await this.#fetch(url, { headers: this.#headers });
+      } catch (err) {
+        if (attempt < retries) {
+          await sleep(1000 * 2 ** attempt);
+          continue;
+        }
+        throw new Error(`GW2 wiki network error for ${action}: ${(err as Error).message}`);
+      }
+      if (res.ok) return res;
+      if ((res.status === 429 || res.status >= 500) && attempt < retries) {
+        const retryAfter = Number(res.headers.get('retry-after'));
+        await sleep(retryAfter > 0 ? retryAfter * 1000 : 1000 * 2 ** attempt);
+        continue;
+      }
+      throw new Error(`GW2 wiki ${res.status} for ${action}`);
+    }
   }
 }
 

@@ -34,10 +34,27 @@ export function day(iso: string | undefined): string {
   return iso ? iso.slice(0, 10) : '—';
 }
 
-/** Escape text for a markdown table cell. */
+/**
+ * Escape untrusted text (character, guild, key names, objective titles) for
+ * inline markdown so it cannot add emphasis, links, HTML or headings to a
+ * report a model or renderer will read.
+ */
+export function text(value: unknown): string {
+  return String(value)
+    .replace(/\r?\n/g, ' ')
+    .replace(/[\\`*_[\]<>#|]/g, (ch) => `\\${ch}`);
+}
+
+/**
+ * Escape text for a markdown table cell. Lighter than text(): `_` and `#`
+ * can't start emphasis or a heading inside a cell in practice, and escaping
+ * them would corrupt URLs and snake_case ids that cells often hold.
+ */
 export function cell(value: unknown): string {
   if (value === undefined || value === null || value === '') return '—';
-  return String(value).replace(/\\/g, '\\\\').replace(/\|/g, '\\|').replace(/\r?\n/g, ' ');
+  return String(value)
+    .replace(/\r?\n/g, ' ')
+    .replace(/[\\`*[\]<>|]/g, (ch) => `\\${ch}`);
 }
 
 /** Render a GitHub-flavored markdown table. Returns "_None._" for no rows. */

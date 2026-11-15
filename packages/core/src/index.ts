@@ -24,3 +24,4 @@ export {
 } from './permissions.js';
 export { WikiClient, WIKI_BASE, pageUrl, type WikiPage, type WikiSearchHit } from './wiki.js';
 export * from './report/index.js';
+export * from './recipe-tree.js';

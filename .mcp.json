@@ -1,0 +1,16 @@
+{
+  "mcpServers": {
+    "gw2-account": {
+      "command": "node",
+      "args": ["packages/mcp-account/dist/index.js"]
+    },
+    "gw2-data": {
+      "command": "node",
+      "args": ["packages/mcp-data/dist/index.js"]
+    },
+    "gw2-wiki": {
+      "command": "node",
+      "args": ["packages/mcp-wiki/dist/index.js"]
+    }
+  }
+}

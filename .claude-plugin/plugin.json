@@ -1,0 +1,39 @@
+{
+  "name": "gw2-ai",
+  "displayName": "GW2 AI",
+  "version": "0.1.0",
+  "description": "Guild Wars 2 tools for Claude: MCP servers for your account (API key), game data and trading post prices, and the official wiki, plus skills for account questions, trading and crafting, goal planning, and writing GW2 API code.",
+  "author": {
+    "name": "Christopher Davenport",
+    "url": "https://github.com/ChristopherDavenport"
+  },
+  "homepage": "https://github.com/ChristopherDavenport/gw2-ai",
+  "repository": "https://github.com/ChristopherDavenport/gw2-ai",
+  "license": "MIT",
+  "keywords": ["guild-wars-2", "gw2", "mcp", "trading-post", "crafting", "legendary"],
+  "userConfig": {
+    "api_key": {
+      "type": "string",
+      "title": "GW2 API key (optional)",
+      "description": "Key from https://account.arena.net/applications for the gw2-account server. Leave empty to use the GW2_API_KEY environment variable or the file written by `gw2-mcp-account set-key` (~/.config/gw2-ai/api-key). Stored in your system's secure credential store.",
+      "sensitive": true
+    }
+  },
+  "mcpServers": {
+    "gw2-account": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-account/dist/index.js"],
+      "env": {
+        "GW2_API_KEY": "${GW2_API_KEY:-${user_config.api_key}}"
+      }
+    },
+    "gw2-data": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-data/dist/index.js"]
+    },
+    "gw2-wiki": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-wiki/dist/index.js"]
+    }
+  }
+}

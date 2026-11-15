@@ -1,5 +1,5 @@
 import { catalog, nameOf } from '../catalog.js';
-import { coins, day, hours, num, table } from '../format.js';
+import { coins, day, hours, num, table, text } from '../format.js';
 import type { Account, Character, IdValue, MasteryPoints } from '../types.js';
 import type { ReportContext, ReportSection } from './context.js';
 
@@ -17,7 +17,7 @@ export const overview: ReportSection = {
         try {
           const g = await ctx.client.get<{ name: string; tag: string }>(`/v2/guild/${id}`, { auth: false });
           const leader = a.guild_leader?.includes(id) ? ' (leader)' : '';
-          return `${g.name} [${g.tag}]${leader} \`${id}\``;
+          return `${text(g.name)} \\[${text(g.tag)}\\]${leader} \`${id}\``;
         } catch {
           return `\`${id}\``;
         }
@@ -25,7 +25,7 @@ export const overview: ReportSection = {
     );
 
     const lines = [
-      `- **Account:** ${a.name} (\`${a.id}\`)`,
+      `- **Account:** ${text(a.name)} (\`${a.id}\`)`,
       `- **Created:** ${day(a.created)}; played ${hours(a.age)}`,
       `- **Access:** ${a.access.join(', ')}`,
       `- **Commander tag:** ${a.commander ? 'yes' : 'no'}`,

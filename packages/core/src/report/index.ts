@@ -1,5 +1,6 @@
 import type { Gw2Client } from '../client.js';
 import { missingPermissions, tokenInfo } from '../permissions.js';
+import { text } from '../format.js';
 import type { TokenInfo } from '../types.js';
 import { characters, overview, wallet } from './account.js';
 import { createContext, type ReportOptions, type ReportSection } from './context.js';
@@ -94,7 +95,7 @@ function renderReport(results: SectionResult[], token: TokenInfo, generatedAt: s
     '# Guild Wars 2 account report',
     '',
     `Generated ${generatedAt} from the official GW2 API (api.guildwars2.com).`,
-    `API key "${token.name}" permissions: ${token.permissions.join(', ')}.`,
+    `API key "${text(token.name)}" permissions: ${token.permissions.join(', ')}.`,
     'Ids in the tables are GW2 API ids: look items up at /v2/items/{id} or on wiki.guildwars2.com. Coin amounts are written as g/s/c (100c = 1s, 100s = 1g). Account data can lag the game by up to ~5 minutes.',
     '',
     '## Contents',
