@@ -1,23 +1,54 @@
-import { mapLimit, pageUrl, type CommercePrice, type Gw2Client, type Item, type Recipe, type RecipeIngredient } from '@gw2-ai/client';
+import {
+  mapLimit,
+  pageUrl,
+  type CommercePrice,
+  type Gw2Client,
+  type Item,
+  type MysticForgeRecipe,
+  type Recipe,
+  type RecipeIngredient,
+  type WikiClient,
+} from '@gw2-ai/client';
 import { byId } from './catalog.js';
 import { coins, num, table } from './format.js';
 
 export type IngredientKind = RecipeIngredient['type'];
 
 /**
- * How to get a node: buy it on the trading post, craft it from its children,
- * take it from the account's stock (`owned`), or no priced route exists
- * (Mystic Forge recipes, vendor/karma items, currencies, guild upgrades).
+ * How to get a node: buy it on the trading post, craft it from its children
+ * (at a crafting station or in the Mystic Forge), take it from the account's
+ * stock (`owned`), or no priced route exists (vendor/karma items, rewards,
+ * currencies, guild upgrades).
  */
 export type TreeChoice = 'buy' | 'craft' | 'owned' | 'unavailable';
 
 export interface TreeRecipe {
+  /** `crafting`: a /v2/recipes recipe. `mystic-forge`: a wiki recipe (the API has none). */
+  source: 'crafting' | 'mystic-forge';
+  /** /v2/recipes id; 0 for Mystic Forge recipes. */
+  id: number;
+  disciplines: string[];
+  min_rating: number;
+  /**
+   * Units per craft or forge. Fractional for chance-based Mystic Forge
+   * recipes, where it is the wiki's average yield (Mystic Clover: 0.31).
+   */
+  output_count: number;
+  /** Times the recipe has to be crafted: ceil(count / output_count). */
+  crafts: number;
+  /** Mystic Forge only: the wiki recipe's name and page. */
+  wiki?: { name: string; url: string };
+}
+
+/** A recipe from either source, as the tree uses it. */
+interface SourceRecipe {
+  source: TreeRecipe['source'];
   id: number;
   disciplines: string[];
   min_rating: number;
   output_count: number;
-  /** Times the recipe has to be crafted: ceil(count / output_count). */
-  crafts: number;
+  ingredients: { type: IngredientKind; id: number; count: number }[];
+  wiki?: { name: string; url: string };
 }
 
 export interface RecipeTreeNode {
@@ -48,6 +79,11 @@ export interface RecipeTreeNode {
   complete: boolean;
   /** Why the node was not expanded further. */
   stop?: 'cycle' | 'depth-limit' | 'size-limit';
+  /**
+   * Root only, when a wiki client was given: whether the Mystic Forge lookup
+   * worked. On failure the tree has API recipes only.
+   */
+  mysticForge?: { status: 'ok' | 'failed'; error?: string };
 }
 
 export interface RecipeTreeOptions {
@@ -61,16 +97,23 @@ export interface RecipeTreeOptions {
    * removes its whole subtree from the shopping list.
    */
   have?: ReadonlyMap<number, number>;
+  /**
+   * Look up Mystic Forge recipes on the wiki for items with no API recipe
+   * (legendary weapons and gifts, clovers...). Without it, those items are
+   * unpriced leaves. Costs about one wiki query per 10 such items per level.
+   */
+  wiki?: WikiClient;
 }
 
 interface TreeData {
   items: Map<number, Item>;
   prices: Map<number, CommercePrice>;
-  recipesByOutput: Map<number, Recipe[]>;
+  recipesByOutput: Map<number, SourceRecipe[]>;
   /** Item ids whose recipes were searched. */
   searched: Set<number>;
   currencies: Map<number, { name: string }>;
   guildUpgrades: Map<number, { name: string }>;
+  forge?: { status: 'ok' | 'failed'; error?: string };
 }
 
 const COIN_CURRENCY = 1;
@@ -82,8 +125,9 @@ const MAX_NODES = 20_000;
  * /v2/items, /v2/commerce/prices and /v2/recipes call per 200 ids, plus one
  * /v2/recipes/search per distinct item (the API has no bulk search).
  *
- * Mystic Forge recipes are not in the API, so items such as legendary gifts
- * come back as leaves with no recipe and (if account bound) no price.
+ * Mystic Forge recipes are not in the API. With `options.wiki` they come from
+ * the wiki for items that have no API recipe; without it, items such as
+ * legendary gifts are leaves with no recipe and (if account bound) no price.
  */
 export async function buildRecipeTree(
   client: Gw2Client,
@@ -92,13 +136,55 @@ export async function buildRecipeTree(
   options: RecipeTreeOptions = {},
 ): Promise<RecipeTreeNode> {
   const maxDepth = options.maxDepth ?? 10;
-  const data = await fetchTreeData(client, itemId, maxDepth, options.maxItems ?? 600);
+  const data = await fetchTreeData(client, options.wiki, itemId, maxDepth, options.maxItems ?? 600);
   const have = new Map(options.have ?? []);
   const budget = { nodes: 0 };
-  return buildNode(data, 'Item', itemId, Math.max(1, Math.floor(quantity)), 0, new Set(), have, maxDepth, budget);
+  const root = buildNode(data, 'Item', itemId, Math.max(1, Math.floor(quantity)), 0, new Set(), have, maxDepth, budget);
+  if (data.forge) root.mysticForge = data.forge;
+  return root;
 }
 
-async function fetchTreeData(client: Gw2Client, rootId: number, maxDepth: number, maxItems: number): Promise<TreeData> {
+function fromApi(r: Recipe): SourceRecipe {
+  return {
+    source: 'crafting',
+    id: r.id,
+    disciplines: r.disciplines,
+    min_rating: r.min_rating,
+    output_count: r.output_item_count,
+    ingredients: r.ingredients,
+  };
+}
+
+/**
+ * A wiki recipe the tree can use, or undefined. Only `base` recipes count:
+ * the wiki marks random-output, promotion and demotion recipes as unfit for
+ * material totals (and gives chance-based ones an average-yield twin).
+ */
+function fromForge(r: MysticForgeRecipe): SourceRecipe | undefined {
+  if (!r.base) return undefined;
+  const ingredients: SourceRecipe['ingredients'] = [];
+  for (const i of r.ingredients) {
+    if (i.item_id === undefined) return undefined;
+    ingredients.push({ type: 'Item', id: i.item_id, count: i.count });
+  }
+  return {
+    source: 'mystic-forge',
+    id: 0,
+    disciplines: [],
+    min_rating: 0,
+    output_count: r.output_item_count,
+    ingredients,
+    wiki: { name: r.name, url: r.url },
+  };
+}
+
+async function fetchTreeData(
+  client: Gw2Client,
+  wiki: WikiClient | undefined,
+  rootId: number,
+  maxDepth: number,
+  maxItems: number,
+): Promise<TreeData> {
   const data: TreeData = {
     items: new Map(),
     prices: new Map(),
@@ -125,12 +211,30 @@ async function fetchTreeData(client: Gw2Client, rootId: number, maxDepth: number
     for (const [id, price] of prices) data.prices.set(id, price);
     if (search) for (const id of frontier) data.searched.add(id);
 
+    const found: [output: number, recipe: SourceRecipe][] = [];
     const recipes = await client.many('/v2/recipes', recipeIdLists.flat());
+    for (const r of recipes.values()) found.push([r.output_item_id, fromApi(r)]);
+
+    // Mystic Forge recipes from the wiki, for items the API can't craft.
+    if (search && wiki && data.forge?.status !== 'failed') {
+      const crafted = new Set(found.map(([out]) => out));
+      const uncrafted = frontier.filter((id) => !crafted.has(id));
+      try {
+        for (const r of await wiki.mysticForgeRecipes(uncrafted)) {
+          const recipe = fromForge(r);
+          if (recipe) found.push([r.output_item_id, recipe]);
+        }
+        data.forge = { status: 'ok' };
+      } catch (err) {
+        data.forge = { status: 'failed', error: err instanceof Error ? err.message : String(err) };
+      }
+    }
+
     const next: number[] = [];
-    for (const r of recipes.values()) {
-      const list = data.recipesByOutput.get(r.output_item_id) ?? [];
+    for (const [output, r] of found) {
+      const list = data.recipesByOutput.get(output) ?? [];
       list.push(r);
-      data.recipesByOutput.set(r.output_item_id, list);
+      data.recipesByOutput.set(output, list);
       for (const ing of r.ingredients) {
         if (ing.type === 'Currency') currencyIds.add(ing.id);
         else if (ing.type === 'GuildUpgrade') upgradeIds.add(ing.id);
@@ -223,9 +327,9 @@ function buildNode(
 
   if (!node.stop && recipes.length > 0) {
     const childPath = new Set(path).add(id);
-    let picked: { recipe: Recipe; children: RecipeTreeNode[]; cost: number; complete: boolean; have: Map<number, number> } | undefined;
+    let picked: { recipe: SourceRecipe; children: RecipeTreeNode[]; cost: number; complete: boolean; have: Map<number, number> } | undefined;
     for (const recipe of recipes) {
-      const crafts = Math.ceil(need / Math.max(1, recipe.output_item_count));
+      const crafts = craftsFor(need, recipe.output_count);
       const trial = new Map(have);
       const children = recipe.ingredients.map((ing) =>
         buildNode(data, ing.type, ing.id, ing.count * crafts, depth + 1, childPath, trial, maxDepth, budget),
@@ -237,11 +341,13 @@ function buildNode(
     if (picked) {
       const r = picked.recipe;
       node.recipe = {
+        source: r.source,
         id: r.id,
         disciplines: r.disciplines,
         min_rating: r.min_rating,
-        output_count: r.output_item_count,
-        crafts: Math.ceil(need / Math.max(1, r.output_item_count)),
+        output_count: r.output_count,
+        crafts: craftsFor(need, r.output_count),
+        ...(r.wiki ? { wiki: r.wiki } : {}),
       };
       node.alternatives = recipes.length - 1;
       node.children = picked.children;
@@ -270,9 +376,18 @@ function buildNode(
   return node;
 }
 
+/**
+ * Crafts or forges needed for `need` units. A fractional `output` (average
+ * yield of a chance-based forge) gives the expected number of forges; the
+ * epsilon keeps float error (10 / 0.1) from adding one.
+ */
+function craftsFor(need: number, output: number): number {
+  return Math.max(1, Math.ceil(need / (output > 0 ? output : 1) - 1e-9));
+}
+
 function better(
-  a: { recipe: Recipe; cost: number; complete: boolean },
-  b: { recipe: Recipe; cost: number; complete: boolean },
+  a: { recipe: SourceRecipe; cost: number; complete: boolean },
+  b: { recipe: SourceRecipe; cost: number; complete: boolean },
 ): boolean {
   if (a.complete !== b.complete) return a.complete;
   if (a.cost !== b.cost) return a.cost < b.cost;
@@ -355,12 +470,9 @@ export function renderRecipeTree(tree: RecipeTreeNode, options: RenderTreeOption
   const out: string[] = [];
   const total = tree.count + tree.owned;
   out.push(`# ${options.title ?? `Recipe tree: ${num(total)} × ${tree.name} (${tree.itemId})`}`, '');
-  out.push(summaryLine(tree), '');
-  out.push(
-    'Prices are current trading post lowest sell listings (instant buy). Craft costs exclude leftover output and assume you know the recipes. ' +
-      'Mystic Forge recipes (most legendary gifts) are not in the API, so those items appear as unpriced leaves; check the wiki for them.',
-    '',
-  );
+  const forge = tree.mysticForge?.status === 'ok';
+  out.push(summaryLine(tree, forge), '');
+  out.push(`Prices are current trading post lowest sell listings (instant buy). Craft costs exclude leftover output and assume you know the recipes. ${forgeNote(tree)}`, '');
 
   const lines: string[] = [];
   let omitted = 0;
@@ -368,7 +480,7 @@ export function renderRecipeTree(tree: RecipeTreeNode, options: RenderTreeOption
     if (lines.length >= maxLines) {
       omitted++;
     } else {
-      lines.push(`${'  '.repeat(depth)}- ${nodeLine(n)}`);
+      lines.push(`${'  '.repeat(depth)}- ${nodeLine(n, forge)}`);
     }
     if (n.best === 'craft' || (options.expandAll && n.children.length > 0 && n.best !== 'owned')) {
       for (const c of n.children) walk(c, depth + 1);
@@ -379,7 +491,7 @@ export function renderRecipeTree(tree: RecipeTreeNode, options: RenderTreeOption
   if (omitted) out.push('', `_${num(omitted)} more nodes not shown. Query a sub-component's item id for its own tree._`);
 
   const leaves = flattenLeaves(tree, 'best');
-  out.push('', ...leafTables(leaves, 'Materials to buy (cheapest route)'));
+  out.push('', ...leafTables(leaves, 'Materials to buy (cheapest route)', forge));
 
   const used = stockUsed(tree);
   if (used.length) {
@@ -388,15 +500,29 @@ export function renderRecipeTree(tree: RecipeTreeNode, options: RenderTreeOption
 
   if (options.raw ?? true) {
     const raw = flattenLeaves(tree, 'raw');
-    if (!sameLeaves(raw, leaves)) out.push('', ...leafTables(raw, 'Raw materials if you craft every component'));
+    if (!sameLeaves(raw, leaves)) out.push('', ...leafTables(raw, 'Raw materials if you craft every component', forge));
   }
   return out.join('\n') + '\n';
 }
 
-const NO_RECIPE =
-  'There is no crafting-station recipe for it in the API: legendaries, gifts and many trophies are made in the Mystic Forge or bought from vendors, so check its wiki page.';
+function forgeNote(tree: RecipeTreeNode): string {
+  switch (tree.mysticForge?.status) {
+    case 'ok':
+      return 'Mystic Forge recipes come from the GW2 wiki (the API has none). Chance-based forges such as Mystic Clovers use the wiki\'s average yield, so their counts are expected values, not guarantees.';
+    case 'failed':
+      return `Looking up Mystic Forge recipes on the wiki failed (${tree.mysticForge.error ?? 'unknown error'}), so forge-made items such as legendary gifts appear as unpriced leaves; check the wiki for them.`;
+    default:
+      return 'Mystic Forge recipes (most legendary gifts) are not in the API, so those items appear as unpriced leaves; check the wiki for them.';
+  }
+}
 
-function summaryLine(tree: RecipeTreeNode): string {
+function noRecipe(forge: boolean): string {
+  return forge
+    ? 'It has no crafting or Mystic Forge recipe: it comes from vendors, rewards or drops, so check its wiki page.'
+    : 'There is no crafting-station recipe for it in the API: legendaries, gifts and many trophies are made in the Mystic Forge or bought from vendors, so check its wiki page.';
+}
+
+function summaryLine(tree: RecipeTreeNode, forge: boolean): string {
   const partial = tree.complete ? '' : ' + unpriced items listed below';
   const buy = tree.buyPrice !== undefined ? `buy outright: ${coins(tree.buyPrice)}` : 'not buyable on the trading post';
   switch (tree.best) {
@@ -408,14 +534,14 @@ function summaryLine(tree: RecipeTreeNode): string {
       return `**Cheapest route: buy for ${coins(tree.cost ?? 0)}**${
         tree.craftCost !== undefined
           ? ` (craft: ${coins(tree.craftCost)}${tree.craftComplete ? '' : ' + unpriced items'}).`
-          : `. ${NO_RECIPE}`
+          : `. ${noRecipe(forge)}`
       }`;
     case 'unavailable':
-      return `**No priced route:** it is not on the trading post. ${NO_RECIPE}`;
+      return `**No priced route:** it is not on the trading post. ${noRecipe(forge)}`;
   }
 }
 
-function nodeLine(n: RecipeTreeNode): string {
+function nodeLine(n: RecipeTreeNode, forge: boolean): string {
   const parts: string[] = [];
   const owned = n.owned && n.count ? ` (+${num(n.owned)} from holdings)` : '';
   const shown = n.count || n.owned;
@@ -435,22 +561,31 @@ function nodeLine(n: RecipeTreeNode): string {
     case 'unavailable':
       parts.push(
         n.kind === 'Item'
-          ? `**unpriced**: no API recipe, not on TP (Mystic Forge, vendor or drop? ${pageUrl(n.name)})`
+          ? forge
+            ? `**unpriced**: no crafting or forge recipe, not on TP (vendor, reward or drop? ${pageUrl(n.name)})`
+            : `**unpriced**: no API recipe, not on TP (Mystic Forge, vendor or drop? ${pageUrl(n.name)})`
           : '**unpriced**',
       );
       break;
   }
   if (n.recipe) {
     const r = n.recipe;
-    const makes = r.output_count > 1 ? `, makes ${r.output_count} per craft` : '';
     const alt = n.alternatives ? `, ${n.alternatives} other recipe${n.alternatives > 1 ? 's' : ''}` : '';
-    parts.push(`recipe ${r.id} (${r.disciplines.join('/')} ${r.min_rating}, ×${num(r.crafts)}${makes}${alt})`);
+    if (r.source === 'mystic-forge') {
+      const makes = Number.isInteger(r.output_count)
+        ? r.output_count > 1 ? `, makes ${r.output_count} per forge` : ''
+        : `, ~${r.output_count} per forge on average`;
+      parts.push(`Mystic Forge (×${num(r.crafts)}${makes}${alt}; ${r.wiki?.url ?? pageUrl(n.name)})`);
+    } else {
+      const makes = r.output_count > 1 ? `, makes ${r.output_count} per craft` : '';
+      parts.push(`recipe ${r.id} (${r.disciplines.join('/')} ${r.min_rating}, ×${num(r.crafts)}${makes}${alt})`);
+    }
   }
   if (n.stop) parts.push(`not expanded: ${n.stop}`);
   return `${head} — ${parts.join(' · ')}`;
 }
 
-function leafTables(leaves: TreeLeaf[], heading: string): string[] {
+function leafTables(leaves: TreeLeaf[], heading: string, forge: boolean): string[] {
   const priced = leaves.filter((l) => !l.unpriced);
   const unpriced = leaves.filter((l) => l.unpriced);
   const total = priced.reduce((s, l) => s + (l.cost ?? 0), 0);
@@ -467,7 +602,7 @@ function leafTables(leaves: TreeLeaf[], heading: string): string[] {
       '',
       ...unpriced.map((l) =>
         l.kind === 'Item'
-          ? `- ${num(l.count)} × ${l.name} (item ${l.itemId}): no API recipe and not on the TP; see ${pageUrl(l.name)}`
+          ? `- ${num(l.count)} × ${l.name} (item ${l.itemId}): ${forge ? 'no crafting or Mystic Forge recipe' : 'no API recipe'} and not on the TP; see ${pageUrl(l.name)}`
           : `- ${num(l.count)} × ${l.name} (${l.kind} ${l.itemId})`,
       ),
     );

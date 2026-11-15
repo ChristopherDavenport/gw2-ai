@@ -1,0 +1,796 @@
+{
+ "query": {
+  "printrequests": [
+   {
+    "label": "",
+    "key": "",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 2
+   },
+   {
+    "label": "Has output game id",
+    "key": "Has_output_game_id",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has output quantity",
+    "key": "Has_output_quantity",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has ingredient with id",
+    "key": "Has_ingredient_with_id",
+    "redi": "",
+    "typeid": "_rec",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has canonical name",
+    "key": "Has_canonical_name",
+    "redi": "",
+    "typeid": "_txt",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Can be queried for base ingredients",
+    "key": "Can_be_queried_for_base_ingredients",
+    "redi": "",
+    "typeid": "_boo",
+    "mode": 1,
+    "format": ""
+   }
+  ],
+  "results": {
+   "Gift of Mastery#recipe1": {
+    "printouts": {
+     "Has output game id": [
+      19674
+     ],
+     "Has output quantity": [
+      1
+     ],
+     "Has ingredient with id": [
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Bloodstone Shard",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Bloodstone_Shard",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         20797
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         2
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         250
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Obsidian Shard",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Obsidian_Shard",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19925
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         3
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Gift of Exploration",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Gift_of_Exploration",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19677
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         4
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Gift of Battle",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Gift_of_Battle",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19678
+        ]
+       }
+      }
+     ],
+     "Has canonical name": [
+      "Gift of Mastery"
+     ],
+     "Can be queried for base ingredients": [
+      "t"
+     ]
+    },
+    "fulltext": "Gift of Mastery#recipe1",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Gift_of_Mastery#recipe1",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Mystic Clover#recipe1": {
+    "printouts": {
+     "Has output game id": [
+      19675
+     ],
+     "Has output quantity": [
+      1
+     ],
+     "Has ingredient with id": [
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Obsidian Shard",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Obsidian_Shard",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19925
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         2
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Mystic Coin",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Coin",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19976
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         3
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Glob of Ectoplasm",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Glob_of_Ectoplasm",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19721
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         4
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         6
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Philosopher's Stone",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         20796
+        ]
+       }
+      }
+     ],
+     "Has canonical name": [
+      "1 Mystic Clover or other materials (random)"
+     ],
+     "Can be queried for base ingredients": [
+      "f"
+     ]
+    },
+    "fulltext": "Mystic Clover#recipe1",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Clover#recipe1",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Mystic Clover#recipe2": {
+    "printouts": {
+     "Has output game id": [
+      19675
+     ],
+     "Has output quantity": [
+      10
+     ],
+     "Has ingredient with id": [
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         10
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Obsidian Shard",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Obsidian_Shard",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19925
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         2
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         10
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Mystic Coin",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Coin",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19976
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         3
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         10
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Glob of Ectoplasm",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Glob_of_Ectoplasm",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19721
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         4
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         10
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Mystic Crystal",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Crystal",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         20799
+        ]
+       }
+      }
+     ],
+     "Has canonical name": [
+      "10 Mystic Clovers or other materials (random)"
+     ],
+     "Can be queried for base ingredients": [
+      "f"
+     ]
+    },
+    "fulltext": "Mystic Clover#recipe2",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Clover#recipe2",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Mystic Clover#recipe3": {
+    "printouts": {
+     "Has output game id": [
+      19675
+     ],
+     "Has output quantity": [
+      0.31
+     ],
+     "Has ingredient with id": [
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Obsidian Shard",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Obsidian_Shard",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19925
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         2
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Mystic Coin",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Coin",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19976
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         3
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         1
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Glob of Ectoplasm",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Glob_of_Ectoplasm",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         19721
+        ]
+       }
+      },
+      {
+       "Has ingredient index": {
+        "label": "Has ingredient index",
+        "key": "Has_ingredient_index",
+        "typeid": "_num",
+        "item": [
+         4
+        ]
+       },
+       "Has ingredient quantity": {
+        "label": "Has ingredient quantity",
+        "key": "Has_ingredient_quantity",
+        "typeid": "_num",
+        "item": [
+         6
+        ]
+       },
+       "Has ingredient name": {
+        "label": "Has ingredient name",
+        "key": "Has_ingredient_name",
+        "typeid": "_wpg",
+        "item": [
+         {
+          "fulltext": "Philosopher's Stone",
+          "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+          "namespace": 0,
+          "exists": "1",
+          "displaytitle": ""
+         }
+        ]
+       },
+       "Has ingredient id": {
+        "label": "Has ingredient id",
+        "key": "Has_ingredient_id",
+        "typeid": "_num",
+        "item": [
+         20796
+        ]
+       }
+      }
+     ],
+     "Has canonical name": [
+      "Mystic Clover Average"
+     ],
+     "Can be queried for base ingredients": [
+      "t"
+     ]
+    },
+    "fulltext": "Mystic Clover#recipe3",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Clover#recipe3",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   }
+  },
+  "serializer": "SMW\\Serializers\\QueryResultSerializer",
+  "version": 2,
+  "meta": {
+   "hash": "a8863732aed04b72207b94f9e2fe8d41",
+   "count": 4,
+   "offset": 0,
+   "source": "",
+   "time": "0.167826"
+  }
+ }
+}

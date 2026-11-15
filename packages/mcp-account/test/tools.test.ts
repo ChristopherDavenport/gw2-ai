@@ -1,4 +1,4 @@
-import { Gw2Client, RateLimiter } from '@gw2-ai/client';
+import { Gw2Client, RateLimiter, WikiClient } from '@gw2-ai/client';
 import { describe, expect, it } from 'vitest';
 import { character, findItem, keyInfo, shoppingList } from '../src/tools.js';
 
@@ -89,6 +89,12 @@ function setup(permissions: string[]) {
 
 const ALL = ['account', 'inventories', 'characters', 'builds', 'unlocks'];
 
+/** A wiki with no Mystic Forge recipes. */
+const noForge = new WikiClient({
+  fetch: (async () => new Response(JSON.stringify({ query: { results: [] } }))) as typeof globalThis.fetch,
+  rateLimiter: new RateLimiter(1000, 60_000),
+});
+
 describe('account tools', () => {
   it('gw2_key_info lists available and skipped sections', async () => {
     const md = await keyInfo(setup(['account', 'wallet']).client);
@@ -126,7 +132,7 @@ describe('account tools', () => {
 
   it('gw2_shopping_list subtracts holdings, intermediates first', async () => {
     // Need 2 lumps; own 1. The other needs 50 ingots (100 ore, 150 owned), 1 ecto (10 owned), 10 reagents (none).
-    const md = await shoppingList(setup(ALL).client, 46742, 2);
+    const md = await shoppingList(setup(ALL).client, noForge, 46742, 2);
     expect(md).toContain('| Thermocatalytic Reagent | 46747 | 10 | 10c | 1s |');
     expect(md).not.toMatch(/\| Mithril Ore \| 19700 \| \d+ \| 10c/);
     expect(md).toContain('**Total: 1s**');

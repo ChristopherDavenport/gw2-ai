@@ -10,6 +10,7 @@ import {
   type ItemFlag,
   type ItemStat,
   type Mini,
+  type MysticForgeRecipe,
   type Skin,
   type Title,
   type WikiClient,
@@ -332,15 +333,39 @@ export async function gemExchange(client: Gw2Client, gems: number, copper: numbe
 
 // ---------------------------------------------------------------- crafting
 
-export async function recipeTree(client: Gw2Client, id: number, quantity: number, expandAll: boolean): Promise<string> {
-  const tree = await buildRecipeTree(client, id, quantity);
+export async function recipeTree(client: Gw2Client, wiki: WikiClient, id: number, quantity: number, expandAll: boolean): Promise<string> {
+  const tree = await buildRecipeTree(client, id, quantity, { wiki });
   return renderRecipeTree(tree, { expandAll });
 }
 
-export async function recipesUsing(client: Gw2Client, id: number, limit: number): Promise<string> {
-  const recipeIds = await client.get('/v2/recipes/search', { query: { input: id } });
+/**
+ * Drop a random-output recipe when the wiki also has its average-yield twin
+ * (same output and ingredients, flagged `base`), so each forge shows once.
+ */
+function dedupeForge(recipes: readonly MysticForgeRecipe[]): MysticForgeRecipe[] {
+  const key = (r: MysticForgeRecipe) => JSON.stringify([r.output_item_id, r.ingredients.map((i) => [i.item_id ?? i.name, i.count])]);
+  const averaged = new Set(recipes.filter((r) => r.base && !Number.isInteger(r.output_item_count)).map(key));
+  return recipes.filter((r) => r.base || !averaged.has(key(r)));
+}
+
+function forgeYield(r: MysticForgeRecipe): string {
+  if (!Number.isInteger(r.output_item_count)) return `~${r.output_item_count} (average; chance-based)`;
+  return r.base ? String(r.output_item_count) : `${r.output_item_count} (variable; see wiki)`;
+}
+
+export async function recipesUsing(client: Gw2Client, wiki: WikiClient, id: number, limit: number): Promise<string> {
+  const [recipeIds, forgeResult] = await Promise.all([
+    client.get('/v2/recipes/search', { query: { input: id } }),
+    wiki.mysticForgeRecipesUsing(id, Math.min(500, limit + 50)).then(
+      (r) => ({ recipes: dedupeForge(r) }),
+      (err: unknown) => ({ recipes: [] as MysticForgeRecipe[], error: err instanceof Error ? err.message : String(err) }),
+    ),
+  ]);
   const [self, recipes] = await Promise.all([client.many('/v2/items', [id]), client.many('/v2/recipes', recipeIds)]);
-  const outputs = await client.many('/v2/items', [...recipes.values()].map((r) => r.output_item_id));
+  const outputs = await client.many('/v2/items', [
+    ...[...recipes.values()].map((r) => r.output_item_id),
+    ...forgeResult.recipes.map((r) => r.output_item_id),
+  ]);
   const list = [...recipes.values()].sort(
     (a, b) => nameOf(outputs, a.output_item_id).localeCompare(nameOf(outputs, b.output_item_id)) || a.min_rating - b.min_rating,
   );
@@ -358,12 +383,46 @@ export async function recipesUsing(client: Gw2Client, id: number, limit: number)
     ];
   });
   const more = list.length > limit ? ` Showing ${limit}; raise \`limit\` to see more.` : '';
-  const note =
-    '\n\nOnly crafting-station recipes are in the API; Mystic Forge combinations are not (see the wiki for those).';
-  return `# Recipes using ${nameOf(self, id)} (${id})\n\n${num(list.length)} recipes.${more}${note}\n\n${table(
-    ['Makes', 'Item id', 'Rarity', 'Uses', 'Output qty', 'Discipline / rating', 'Recipe id'],
-    rows,
-  )}`;
+  const out = [
+    `# Recipes using ${nameOf(self, id)} (${id})`,
+    '',
+    '## Crafting stations',
+    '',
+    `${num(list.length)} recipes.${more}`,
+    '',
+    table(['Makes', 'Item id', 'Rarity', 'Uses', 'Output qty', 'Discipline / rating', 'Recipe id'], rows),
+    '',
+    '## Mystic Forge',
+    '',
+  ];
+  if ('error' in forgeResult) {
+    out.push(`_Couldn't load Mystic Forge recipes from the wiki (${forgeResult.error}). See ${pageUrl(nameOf(self, id))}._`);
+  } else {
+    const forge = [...forgeResult.recipes].sort(
+      (a, b) => nameOf(outputs, a.output_item_id).localeCompare(nameOf(outputs, b.output_item_id)) || a.name.localeCompare(b.name),
+    );
+    const forgeMore = forge.length > limit ? ` Showing ${limit}; raise \`limit\` to see more.` : '';
+    out.push(
+      `${num(forge.length)} recipes, from the GW2 wiki (the API has no Mystic Forge recipes).${forgeMore}`,
+      '',
+      table(
+        ['Makes', 'Item id', 'Rarity', 'Uses', 'Output qty', 'Other ingredients', 'Wiki'],
+        forge.slice(0, limit).map((r) => {
+          const o = outputs.get(r.output_item_id);
+          return [
+            o?.name ?? r.name,
+            r.output_item_id,
+            o?.rarity,
+            num(r.ingredients.find((i) => i.item_id === id)?.count ?? 0),
+            forgeYield(r),
+            r.ingredients.filter((i) => i.item_id !== id).map((i) => `${num(i.count)} ${i.name}`).join(', '),
+            r.url,
+          ];
+        }),
+      ),
+    );
+  }
+  return out.join('\n');
 }
 
 // ---------------------------------------------------------------- achievements

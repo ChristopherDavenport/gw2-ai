@@ -33,7 +33,16 @@ export type {
   RouteSpec,
 } from './spec.js';
 export { ALL_PERMISSIONS, PERMISSION_HELP, looksLikeApiKey, missingPermissions } from './permissions.js';
-export { WikiClient, WIKI_BASE, pageUrl, type WikiClientOptions, type WikiPage, type WikiSearchHit } from './wiki.js';
+export {
+  WikiClient,
+  WIKI_BASE,
+  pageUrl,
+  type MysticForgeIngredient,
+  type MysticForgeRecipe,
+  type WikiClientOptions,
+  type WikiPage,
+  type WikiSearchHit,
+} from './wiki.js';
 export type * from './types/common.js';
 export type * from './types/account.js';
 export type * from './types/characters.js';

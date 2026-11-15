@@ -95,11 +95,12 @@ export function createServer(): McpServer {
     {
       title: 'Crafting tree and cost',
       description:
-        'Full crafting tree for N of an item: every component with its recipe (discipline and minimum rating), a buy-vs-craft decision per node at ' +
+        'Full crafting tree for N of an item: every component with its recipe (crafting discipline and minimum rating, or Mystic Forge), a buy-vs-craft decision per node at ' +
         'current TP prices, the cheapest total, the shopping list of materials to buy, and raw materials if you craft everything. ' +
-        'Mystic Forge recipes (most legendary gifts, clovers) are NOT in the API: those show as unpriced leaves with a wiki link. ' +
+        'Mystic Forge recipes (legendary weapons and gifts, clovers) come from the GW2 wiki, since the API has none; chance-based forges use the wiki\'s average yield. ' +
+        'Items with no recipe and no TP price (vendor, reward or drop items such as Gift of Exploration) are listed as unpriced leaves with wiki links. ' +
         'For "what do I still need given what I own", use gw2_shopping_list on the gw2-account server. ' +
-        'Cost: about 1 API call per distinct component plus a few batched calls (5-150 calls; cached for a day except prices).',
+        'Cost: about 1 API call per distinct component plus a few batched calls (5-150 calls; cached for a day except prices), and a wiki query per 10 items with no API recipe.',
       inputSchema: {
         item_id: itemId,
         quantity: z.number().int().min(1).max(10_000).default(1),
@@ -110,7 +111,7 @@ export function createServer(): McpServer {
       },
       annotations: READ_ONLY,
     },
-    ({ item_id, quantity, expand_all }) => run(() => tools.recipeTree(client, item_id, quantity, expand_all)),
+    ({ item_id, quantity, expand_all }) => run(() => tools.recipeTree(client, wiki, item_id, quantity, expand_all)),
   );
 
   server.registerTool(
@@ -118,15 +119,16 @@ export function createServer(): McpServer {
     {
       title: 'Recipes that use an item',
       description:
-        'What an item is an ingredient in: each crafting recipe that consumes it, with the output item, how many it uses, discipline and rating. ' +
-        'Use for "what can I make with X" or "why is X expensive". Mystic Forge recipes are not included. Cost: 3+ API calls (common materials appear in hundreds of recipes).',
+        'What an item is an ingredient in: each crafting recipe that consumes it (output item, how many it uses, discipline and rating), ' +
+        'then each Mystic Forge recipe that consumes it (from the GW2 wiki: output, count used, the other ingredients, average yield for chance-based forges). ' +
+        'Use for "what can I make with X" or "why is X expensive". Cost: 3+ API calls and 1 wiki query (common materials appear in hundreds of recipes).',
       inputSchema: {
         item_id: itemId,
         limit: z.number().int().min(1).max(500).default(50),
       },
       annotations: READ_ONLY,
     },
-    ({ item_id, limit }) => run(() => tools.recipesUsing(client, item_id, limit)),
+    ({ item_id, limit }) => run(() => tools.recipesUsing(client, wiki, item_id, limit)),
   );
 
   server.registerTool(

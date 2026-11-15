@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { Gw2ApiError, Gw2Client } from '@gw2-ai/client';
+import { Gw2ApiError, Gw2Client, WikiClient } from '@gw2-ai/client';
 import { SECTIONS, SECTION_IDS, buildReport } from '@gw2-ai/core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
@@ -21,6 +21,9 @@ function log(...args: unknown[]): void {
 class NoKeyError extends Error {}
 
 let cached: { key: string; client: Gw2Client } | undefined;
+
+/** Public wiki, for Mystic Forge recipes. It never sees the API key. */
+const wiki = new WikiClient();
 
 /** Client for the configured key, re-read on each call so `set-key` applies without a restart. */
 async function currentClient(): Promise<Gw2Client> {
@@ -173,7 +176,8 @@ export function createServer(): McpServer {
       description:
         'What the account still needs to buy to craft N of an item: the recipe tree with a buy-vs-craft choice per component, minus what the account already holds ' +
         '(material storage, bank, shared slots, character bags; intermediates are used first), priced at current TP sell listings. ' +
-        'Leaves with no API recipe and no TP price (Mystic Forge gifts, vendor/karma items) are listed separately with wiki links. ' +
+        'Mystic Forge recipes (legendary weapons and gifts, clovers) come from the GW2 wiki; chance-based forges use the wiki\'s average yield. ' +
+        'Leaves with no recipe and no TP price (vendor, karma or reward items) are listed separately with wiki links. ' +
         'Use for "what do I need for X", "how much more gold to craft X". Needs `inventories`. Cost: the recipe tree (about 1 call per distinct component) plus ~5 account calls.',
       inputSchema: {
         item_id: z.number().int().positive(),
@@ -181,7 +185,7 @@ export function createServer(): McpServer {
       },
       annotations: READ_ONLY,
     },
-    ({ item_id, quantity }) => withClient((c) => tools.shoppingList(c, item_id, quantity)),
+    ({ item_id, quantity }) => withClient((c) => tools.shoppingList(c, wiki, item_id, quantity)),
   );
 
   server.registerTool(

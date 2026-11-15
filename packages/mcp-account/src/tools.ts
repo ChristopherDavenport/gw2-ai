@@ -8,6 +8,7 @@ import {
   type Item,
   type Permission,
   type TokenInfo,
+  type WikiClient,
 } from '@gw2-ai/client';
 import {
   ACCOUNT,
@@ -187,7 +188,7 @@ export async function character(client: Gw2Client, name: string, templates: Char
 
 // ---------------------------------------------------------------- shopping list
 
-export async function shoppingList(client: Gw2Client, itemId: number, quantity: number): Promise<string> {
+export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: number, quantity: number): Promise<string> {
   await requirePermissions(client, 'gw2_shopping_list');
   const ctx = createContext(client, { valuation: false });
   const [held, mats] = await Promise.all([
@@ -198,7 +199,7 @@ export async function shoppingList(client: Gw2Client, itemId: number, quantity: 
   for (const h of held.holdings.values()) have.set(h.id, (have.get(h.id) ?? 0) + h.count);
   for (const m of mats) if (m.count > 0) have.set(m.id, (have.get(m.id) ?? 0) + m.count);
 
-  const tree = await buildRecipeTree(client, itemId, quantity, { have });
+  const tree = await buildRecipeTree(client, itemId, quantity, { have, wiki });
   const md = renderRecipeTree(tree, {
     title: `Shopping list: ${num(quantity)} × ${tree.name} (${itemId})`,
     raw: false,

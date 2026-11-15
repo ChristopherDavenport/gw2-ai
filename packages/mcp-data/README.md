@@ -18,7 +18,8 @@ Claude Code: `claude mcp add --scope user gw2-data -- npx -y @gw2-ai/mcp-data`, 
 - `gw2_item`: item details: stats, flags, vendor value, chat link, trading post price, wiki link.
 - `gw2_prices`: buy/sell prices, spread, and flip profit after the 15% trading post fee.
 - `gw2_listings`: the order book for an item.
-- `gw2_recipe_tree`: the full crafting tree with the cheaper of crafting or buying at each step. Mystic Forge recipes are not in the API and are marked.
+- `gw2_recipe_tree`: the full crafting tree with the cheaper of crafting or buying at each step. Mystic Forge recipes (legendary weapons and gifts, clovers) come from the wiki, since the API has none.
+- `gw2_recipes_using`: crafting and Mystic Forge recipes that use an item.
 - `gw2_recipes_using`: recipes an item is an ingredient in.
 - `gw2_gem_exchange`: gems to gold and gold to gems.
 - `gw2_achievement`: achievement details with reward and step names resolved.

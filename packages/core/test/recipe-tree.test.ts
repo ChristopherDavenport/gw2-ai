@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { Gw2Client, RateLimiter } from '@gw2-ai/client';
+import { Gw2Client, RateLimiter, WikiClient } from '@gw2-ai/client';
 import { buildRecipeTree, flattenLeaves, renderRecipeTree } from '../src/index.js';
 
 interface FakeRecipe {
@@ -19,7 +19,59 @@ const ITEMS: Record<number, { name: string; sell?: number }> = {
   600: { name: 'Loop A', sell: 50 },
   601: { name: 'Loop B', sell: 50 },
   700: { name: 'Karma Thing', sell: 10_000 },
+  800: { name: 'Gift of Forging' },
+  801: { name: 'Clover' },
+  802: { name: 'Coin', sell: 100 },
+  803: { name: 'Vendor Stone' },
 };
+
+interface FakeForge {
+  out: number;
+  qty: number;
+  ing: [id: number | undefined, count: number, name: string][];
+  base?: boolean;
+  name?: string;
+}
+
+// Mystic Forge recipes as the wiki holds them.
+const FORGE: FakeForge[] = [
+  { out: 800, qty: 1, ing: [[801, 2, 'Clover'], [400, 5, 'Ore']] },
+  // Random-output recipe: the wiki flags it unfit for totals...
+  { out: 801, qty: 1, ing: [[802, 1, 'Coin']], base: false, name: '1 Clover or other materials (random)' },
+  // ...and gives its average yield as a separate recipe.
+  { out: 801, qty: 0.5, ing: [[802, 1, 'Coin'], [803, 2, 'Vendor Stone']], name: 'Clover Average' },
+  // An ingredient with no game id on the wiki: unusable.
+  { out: 300, qty: 1, ing: [[undefined, 1, 'Mystery']] },
+];
+
+function wikiSetup(fail = false) {
+  const queries: string[] = [];
+  const fetch = (async (input: URL | string) => {
+    const query = new URL(String(input)).searchParams.get('query') ?? '';
+    queries.push(query);
+    if (fail) return new Response(JSON.stringify({ error: { info: 'query timed out' } }));
+    const ids = (/Has output game id::([\d|]+)/.exec(query)?.[1] ?? '').split('||').map(Number);
+    const results: Record<string, unknown> = {};
+    FORGE.filter((f) => ids.includes(f.out)).forEach((f, i) => {
+      results[`${ITEMS[f.out]!.name}#recipe${i + 1}`] = {
+        printouts: {
+          'Has output game id': [f.out],
+          'Has output quantity': [f.qty],
+          'Has canonical name': f.name ? [f.name] : [],
+          'Can be queried for base ingredients': [f.base === false ? 'f' : 't'],
+          'Has ingredient with id': f.ing.map(([id, count, name], j) => ({
+            'Has ingredient index': { item: [j + 1] },
+            'Has ingredient quantity': { item: [count] },
+            'Has ingredient name': { item: [{ fulltext: name }] },
+            'Has ingredient id': { item: id === undefined ? [] : [id] },
+          })),
+        },
+      };
+    });
+    return new Response(JSON.stringify({ query: { results } }));
+  }) as typeof globalThis.fetch;
+  return { wiki: new WikiClient({ fetch, rateLimiter: new RateLimiter(10_000, 600_000) }), queries };
+}
 
 const RECIPES: FakeRecipe[] = [
   // Two recipes for the widget; the second is dearer.
@@ -141,5 +193,44 @@ describe('buildRecipeTree', () => {
     expect(md).toContain('Gift of Testing');
     expect(md).toContain('no API recipe');
     expect(md).toContain('Raw materials if you craft every component');
+  });
+
+  it('resolves Mystic Forge recipes from the wiki', async () => {
+    const { client } = setup();
+    const { wiki, queries } = wikiSetup();
+    const tree = await buildRecipeTree(client, 800, 1, { wiki });
+    expect(tree.mysticForge).toEqual({ status: 'ok' });
+    expect(tree.recipe).toMatchObject({ source: 'mystic-forge', crafts: 1, wiki: { url: 'https://wiki.guildwars2.com/wiki/Gift_of_Forging' } });
+    expect(tree.best).toBe('craft');
+    // 2 clovers at 0.5 per forge on average = 4 forges: 4 coins and 8 vendor stones.
+    const clover = tree.children.find((c) => c.itemId === 801)!;
+    expect(clover.recipe).toMatchObject({ source: 'mystic-forge', output_count: 0.5, crafts: 4, wiki: { name: 'Clover Average' } });
+    expect(clover.alternatives).toBe(0);
+    expect(flattenLeaves(tree).map((l) => [l.name, l.count, l.cost])).toEqual([
+      ['Coin', 4, 400],
+      ['Ore', 5, 25],
+      ['Vendor Stone', 8, undefined],
+    ]);
+    const md = renderRecipeTree(tree);
+    expect(md).toContain('Mystic Forge (×4, ~0.5 per forge on average; https://wiki.guildwars2.com/wiki/Clover)');
+    expect(md).toContain('Mystic Forge recipes come from the GW2 wiki');
+    expect(md).toContain('8 × Vendor Stone (item 803): no crafting or Mystic Forge recipe and not on the TP');
+    // Only items without an API recipe are looked up on the wiki.
+    expect(queries.join(' ')).not.toMatch(/::[\d|]*\b200\b/);
+  });
+
+  it('skips wiki recipes with an ingredient that has no id', async () => {
+    const { client } = setup();
+    const tree = await buildRecipeTree(client, 300, 1, { wiki: wikiSetup().wiki });
+    expect(tree.recipe).toBeUndefined();
+    expect(tree.best).toBe('buy');
+  });
+
+  it('falls back to API recipes when the wiki fails', async () => {
+    const { client } = setup();
+    const tree = await buildRecipeTree(client, 800, 1, { wiki: wikiSetup(true).wiki });
+    expect(tree.mysticForge).toEqual({ status: 'failed', error: 'GW2 wiki error: query timed out' });
+    expect(tree.best).toBe('unavailable');
+    expect(renderRecipeTree(tree)).toContain('Looking up Mystic Forge recipes on the wiki failed (GW2 wiki error: query timed out)');
   });
 });
