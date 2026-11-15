@@ -54,6 +54,43 @@ export interface MysticForgeRecipe {
   base: boolean;
 }
 
+export interface VendorCost {
+  /**
+   * Currency or item name as the wiki writes it: a wallet currency
+   * (`Spirit Shard`, `Karma`, `Coin` in copper), sometimes plural
+   * (`Trade Contracts`), or an item (`Glob of Ectoplasm`).
+   */
+  name: string;
+  amount: number;
+}
+
+/** Purchase limits; absent when unlimited. */
+export interface VendorCaps {
+  daily?: number;
+  weekly?: number;
+  season?: number;
+  character?: number;
+  total?: number;
+}
+
+/** One vendor offer from the wiki's `{{Vendor table row}}` data. */
+export interface VendorOffer {
+  /** Offer subobject, e.g. `Miyani#vendor2`. */
+  subject: string;
+  /** Vendor NPC (its wiki page title). */
+  vendor: string;
+  url: string;
+  /** Wiki page title of the item sold. */
+  item: string;
+  /** Units received per purchase. */
+  quantity: number;
+  /** Everything one purchase costs; several entries are all paid together. */
+  costs: VendorCost[];
+  caps: VendorCaps;
+  /** Retired, temporary or unreleased offers. */
+  historical: boolean;
+}
+
 /** Output ids per `ask` query: the wiki rejects queries of more than ~12 OR'd values. */
 const FORGE_IDS_PER_QUERY = 10;
 const FORGE_PRINTOUTS =
@@ -179,6 +216,65 @@ export class WikiClient {
     return this.#forgeQuery(`[[Has recipe source::Mystic forge]][[Has ingredient with id::?;?;?;${itemId}]]`, limit);
   }
 
+  /**
+   * Wiki item page titles for item ids (`Has context::Item` pages only), in
+   * batches of 10 ids. Ids without a page are missing from the map.
+   */
+  async itemPages(itemIds: Iterable<number>): Promise<Map<number, string>> {
+    const ids = [...new Set(itemIds)].filter((id) => Number.isInteger(id) && id > 0).sort((a, b) => a - b);
+    const out = new Map<number, string>();
+    for (const chunk of chunked(ids, FORGE_IDS_PER_QUERY)) {
+      const rows = await this.ask(`[[Has game id::${chunk.join('||')}]][[Has context::Item]]|?Has game id`, 50);
+      for (const row of rows) {
+        for (const id of (row['Has game id'] as unknown[] | undefined) ?? []) {
+          const n = Number(id);
+          if (chunk.includes(n) && !out.has(n)) out.set(n, String(row.title));
+        }
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Item ids for wiki item page titles (exact titles, `Has context::Item`),
+   * in batches of 10. Titles that aren't item pages are missing from the map.
+   */
+  async itemIdsByTitle(titles: Iterable<string>): Promise<Map<string, number>> {
+    const names = [...new Set(titles)].filter((t) => t && !/[[\]|{}]/.test(t));
+    const out = new Map<string, number>();
+    for (const chunk of chunked(names, FORGE_IDS_PER_QUERY)) {
+      const rows = await this.ask(`[[${chunk.join('||')}]][[Has context::Item]]|?Has game id`, 50);
+      for (const row of rows) {
+        const id = Number((row['Has game id'] as unknown[] | undefined)?.[0]);
+        if (id > 0) out.set(String(row.title), id);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Vendor offers for an item, by its wiki page title (see itemPages).
+   * Includes historical offers; filter on `historical`. The wiki answers
+   * these slowly (often 1-10 s), so query only the items you need.
+   */
+  async vendorOffers(itemTitle: string, limit = 200): Promise<VendorOffer[]> {
+    if (!itemTitle || /[[\]|{}]/.test(itemTitle)) return [];
+    const data = await this.#call<AskResponse>({
+      action: 'ask',
+      query:
+        `[[Sells item::${itemTitle}]]|?Has vendor|?Sells item|?Has item quantity|?Has item cost|?Is historical` +
+        `|?Has daily purchase cap|?Has weekly purchase cap|?Has seasonal purchase cap|?Has character purchase cap|?Has total purchase cap|limit=${limit}`,
+    });
+    const results = data.query?.results;
+    if (!results || Array.isArray(results)) return [];
+    const offers: VendorOffer[] = [];
+    for (const [subject, row] of Object.entries(results)) {
+      const offer = parseVendorOffer(subject, row.printouts, itemTitle);
+      if (offer) offers.push(offer);
+    }
+    return offers;
+  }
+
   async #forgeQuery(conditions: string, limit: number): Promise<MysticForgeRecipe[]> {
     const data = await this.#call<AskResponse>({ action: 'ask', query: `${conditions}${FORGE_PRINTOUTS}|limit=${limit}` });
     const results = data.query?.results;
@@ -273,6 +369,46 @@ function parseForgeRecipe(subject: string, p: Record<string, unknown[]>): Mystic
     output_item_count: count,
     ingredients,
     base: first(p, 'Can be queried for base ingredients') === 't',
+  };
+}
+
+function chunked<T>(list: readonly T[], size: number): T[][] {
+  const out: T[][] = [];
+  for (let i = 0; i < list.length; i += size) out.push(list.slice(i, i + size));
+  return out;
+}
+
+function parseVendorOffer(subject: string, p: Record<string, unknown[]>, itemTitle: string): VendorOffer | undefined {
+  const costs = (p['Has item cost'] ?? [])
+    .map((rec) => ({ name: String(field(rec, 'Has item currency') ?? '').trim(), amount: Number(field(rec, 'Has item value')) }))
+    .filter((c) => c.name && c.amount > 0);
+  if (!costs.length) return undefined;
+  const vendor = String(first(p, 'Has vendor') ?? subject.split('#')[0] ?? subject);
+  const cap = (key: string): number | undefined => {
+    const n = Number(first(p, key));
+    return n > 0 ? n : undefined;
+  };
+  const caps: VendorCaps = {};
+  const daily = cap('Has daily purchase cap');
+  const weekly = cap('Has weekly purchase cap');
+  const season = cap('Has seasonal purchase cap');
+  const character = cap('Has character purchase cap');
+  const total = cap('Has total purchase cap');
+  if (daily) caps.daily = daily;
+  if (weekly) caps.weekly = weekly;
+  if (season) caps.season = season;
+  if (character) caps.character = character;
+  if (total) caps.total = total;
+  const quantity = Number(first(p, 'Has item quantity') ?? 1);
+  return {
+    subject,
+    vendor,
+    url: pageUrl(vendor),
+    item: String(first(p, 'Sells item') ?? itemTitle),
+    quantity: quantity > 0 ? quantity : 1,
+    costs,
+    caps,
+    historical: first(p, 'Is historical') === 't',
   };
 }
 

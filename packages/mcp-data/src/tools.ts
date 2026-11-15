@@ -333,8 +333,15 @@ export async function gemExchange(client: Gw2Client, gems: number, copper: numbe
 
 // ---------------------------------------------------------------- crafting
 
-export async function recipeTree(client: Gw2Client, wiki: WikiClient, id: number, quantity: number, expandAll: boolean): Promise<string> {
-  const tree = await buildRecipeTree(client, id, quantity, { wiki });
+export async function recipeTree(
+  client: Gw2Client,
+  wiki: WikiClient,
+  id: number,
+  quantity: number,
+  expandAll: boolean,
+  vendors = true,
+): Promise<string> {
+  const tree = await buildRecipeTree(client, id, quantity, { wiki, vendors });
   return renderRecipeTree(tree, { expandAll });
 }
 

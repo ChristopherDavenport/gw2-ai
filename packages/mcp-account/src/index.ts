@@ -177,8 +177,9 @@ export function createServer(): McpServer {
         'What the account still needs to buy to craft N of an item: the recipe tree with a buy-vs-craft choice per component, minus what the account already holds ' +
         '(material storage, bank, shared slots, character bags; intermediates are used first), priced at current TP sell listings. ' +
         'Mystic Forge recipes (legendary weapons and gifts, clovers) come from the GW2 wiki; chance-based forges use the wiki\'s average yield. ' +
-        'Leaves with no recipe and no TP price (vendor, karma or reward items) are listed separately with wiki links. ' +
-        'Use for "what do I need for X", "how much more gold to craft X". Needs `inventories`. Cost: the recipe tree (about 1 call per distinct component) plus ~5 account calls.',
+        'Items with no recipe and no TP price are priced at NPC vendors (from the wiki) in wallet currencies; with `wallet`, a table compares the currencies needed with the balances. ' +
+        'Leaves with no recipe, TP price or vendor (rewards, drops) are listed separately with wiki links. ' +
+        'Use for "what do I need for X", "how much more gold to craft X". Needs `inventories`. Cost: the recipe tree (about 1 call per distinct component, plus wiki lookups that take 10-60 s for a legendary) and ~6 account calls.',
       inputSchema: {
         item_id: z.number().int().positive(),
         quantity: z.number().int().min(1).max(10_000).default(1),

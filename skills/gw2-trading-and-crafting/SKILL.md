@@ -7,7 +7,7 @@ description: Guild Wars 2 (GW2) trading post and crafting economics. Use when th
 
 Prices change minute to minute. Always fetch live data; never quote prices from memory.
 
-Tools come from two MCP servers. **gw2-data** (no key): `gw2_item_search`, `gw2_item`, `gw2_prices`, `gw2_listings`, `gw2_recipe_tree`, `gw2_recipes_using`, `gw2_gem_exchange`. **gw2-account** (key): `gw2_shopping_list`, `gw2_find_item`. **gw2-wiki** (no key): `gw2_wiki_page` for vendor costs and where unpriced items come from. Mystic Forge recipes are already in `gw2_recipe_tree`, `gw2_shopping_list` and `gw2_recipes_using` (read from the wiki). In Claude Code they appear as `mcp__plugin_gw2-ai_<server>__<tool>` (plugin) or `mcp__<server>__<tool>` (manual config).
+Tools come from two MCP servers. **gw2-data** (no key): `gw2_item_search`, `gw2_item`, `gw2_prices`, `gw2_listings`, `gw2_recipe_tree`, `gw2_recipes_using`, `gw2_gem_exchange`. **gw2-account** (key): `gw2_shopping_list`, `gw2_find_item`. **gw2-wiki** (no key): `gw2_wiki_page` for where unpriced items come from. Mystic Forge recipes and NPC vendor prices are already in `gw2_recipe_tree` and `gw2_shopping_list` (read from the wiki); `gw2_recipes_using` lists forge recipes too. In Claude Code they appear as `mcp__plugin_gw2-ai_<server>__<tool>` (plugin) or `mcp__<server>__<tool>` (manual config).
 
 ## Without the MCP servers
 
@@ -55,7 +55,7 @@ Example: list at 2g (20,000c): listing fee 1,000c, exchange fee 2,000c, you rece
 **"Is this flip worth it?"** Need: buy order price `B`, sell listing price `S`, supply/demand depth. Profit per unit = `0.85*S - B`. Flag it as weak when profit is a few copper, the spread exists because volume is tiny, or one large listing sits at the top of the book (`gw2_listings`). Margins are snapshots; competing traders will move them.
 
 **"Craft or buy?"**
-1. `gw2_recipe_tree {item_id, quantity}` for the full ingredient tree, crafting and Mystic Forge recipes alike. Chance-based forges (Mystic Clover) are costed at the wiki's average yield: say the count is an expectation. Leaves marked **unpriced** have no recipe and no TP price: look them up on the wiki (`gw2_wiki_page`).
+1. `gw2_recipe_tree {item_id, quantity}` for the full ingredient tree, crafting and Mystic Forge recipes alike. Chance-based forges (Mystic Clover) are costed at the wiki's average yield: say the count is an expectation. Vendor items are costed in wallet currencies (a separate table; Karma for Obsidian Shards). Leaves marked **unpriced** have no recipe, TP price or vendor: look them up on the wiki (`gw2_wiki_page`).
 2. Price every tradable ingredient with `gw2_prices` in one call. Choose a price basis and say which: instant-buy (`sells`) for speed, buy orders (`buys`) for patience.
 3. Compare total ingredient cost with buying the output (`sells` of the output). If the player would sell the result, compare with `0.85 *` its price instead.
 4. Note blockers: the recipe may need to be learned (`LearnedFromItem` flag) and a discipline at `min_rating`; check the account's characters (gw2-account skill). Some intermediates are time-gated by daily crafting (for example the ascended refinements listed in `/v2/dailycrafting`). Account-bound ingredients have no price: say how to get them, don't count them as free.

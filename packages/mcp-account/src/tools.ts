@@ -37,7 +37,7 @@ function tokenInfo(client: Gw2Client): Promise<TokenInfo> {
 export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional: Permission[]; note: string }> = {
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
   gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
-  gw2_shopping_list: { required: ['inventories'], optional: ['characters'], note: 'characters adds character bags to the holdings' },
+  gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances' },
 };
 
 export class MissingPermissionError extends Error {}
@@ -189,12 +189,14 @@ export async function character(client: Gw2Client, name: string, templates: Char
 // ---------------------------------------------------------------- shopping list
 
 export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: number, quantity: number): Promise<string> {
-  await requirePermissions(client, 'gw2_shopping_list');
+  const perms = await requirePermissions(client, 'gw2_shopping_list');
   const ctx = createContext(client, { valuation: false });
-  const [held, mats] = await Promise.all([
+  const [held, mats, walletRows] = await Promise.all([
     collectHoldings(ctx),
     client.get('/v2/account/materials', ACCOUNT).catch(() => []),
+    perms.includes('wallet') ? client.get('/v2/account/wallet', ACCOUNT).catch(() => undefined) : undefined,
   ]);
+  const wallet = walletRows ? new Map(walletRows.map((w) => [w.id, w.value])) : undefined;
   const have = new Map<number, number>();
   for (const h of held.holdings.values()) have.set(h.id, (have.get(h.id) ?? 0) + h.count);
   for (const m of mats) if (m.count > 0) have.set(m.id, (have.get(m.id) ?? 0) + m.count);
@@ -203,12 +205,13 @@ export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: 
   const md = renderRecipeTree(tree, {
     title: `Shopping list: ${num(quantity)} × ${tree.name} (${itemId})`,
     raw: false,
+    ...(wallet ? { wallet } : {}),
   });
   const notes = held.notes.length ? ` Notes: ${held.notes.join('; ')}.` : '';
   return (
     md +
     `\nHoldings counted: bank, shared slots, character bags, material storage (${num(have.size)} distinct items). ` +
-    `Equipped gear, wallet currencies, the delivery box and guild storage are not subtracted.${notes} Costs use current TP sell listings.\n`
+    `Equipped gear, the delivery box and guild storage are not subtracted. ${wallet ? 'Wallet balances are compared with the vendor currencies needed.' : 'Wallet balances are not shown (the key lacks `wallet`).'}${notes} Costs use current TP sell listings.\n`
   );
 }
 

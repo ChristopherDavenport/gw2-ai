@@ -98,9 +98,12 @@ export function createServer(): McpServer {
         'Full crafting tree for N of an item: every component with its recipe (crafting discipline and minimum rating, or Mystic Forge), a buy-vs-craft decision per node at ' +
         'current TP prices, the cheapest total, the shopping list of materials to buy, and raw materials if you craft everything. ' +
         'Mystic Forge recipes (legendary weapons and gifts, clovers) come from the GW2 wiki, since the API has none; chance-based forges use the wiki\'s average yield. ' +
-        'Items with no recipe and no TP price (vendor, reward or drop items such as Gift of Exploration) are listed as unpriced leaves with wiki links. ' +
+        'Items with no recipe and no TP price are priced at their NPC vendors from the wiki (Philosopher\'s Stone for Spirit Shards, Blessing for Imperial Favor...): ' +
+        'a coin-only offer if one exists, else the price most vendors charge (Obsidian Shards assume the Karma exchange), with other offers and purchase limits listed. Their costs add up in a wallet-currency table (currency ids from /v2/currencies). ' +
+        'Items with no recipe, no TP price and no vendor (rewards and drops such as Gift of Exploration) are unpriced leaves with wiki links. ' +
         'For "what do I still need given what I own", use gw2_shopping_list on the gw2-account server. ' +
-        'Cost: about 1 API call per distinct component plus a few batched calls (5-150 calls; cached for a day except prices), and a wiki query per 10 items with no API recipe.',
+        'Cost: about 1 API call per distinct component plus a few batched calls (5-150 calls; cached for a day except prices), a wiki query per 10 items with no API recipe, ' +
+        'and one wiki query per vendor item (often 1-10 s each; a legendary takes about 10-60 s). Pass vendors: false to skip vendor lookups.',
       inputSchema: {
         item_id: itemId,
         quantity: z.number().int().min(1).max(10_000).default(1),
@@ -108,10 +111,11 @@ export function createServer(): McpServer {
           .boolean()
           .default(false)
           .describe('Also expand components that are cheaper to buy than to craft.'),
+        vendors: z.boolean().default(true).describe('Price items with no recipe and no TP listing at NPC vendors (slower).'),
       },
       annotations: READ_ONLY,
     },
-    ({ item_id, quantity, expand_all }) => run(() => tools.recipeTree(client, wiki, item_id, quantity, expand_all)),
+    ({ item_id, quantity, expand_all, vendors }) => run(() => tools.recipeTree(client, wiki, item_id, quantity, expand_all, vendors)),
   );
 
   server.registerTool(

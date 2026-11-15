@@ -1,0 +1,412 @@
+{
+ "query": {
+  "printrequests": [
+   {
+    "label": "",
+    "key": "",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 2
+   },
+   {
+    "label": "Has vendor",
+    "key": "Has_vendor",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Sells item",
+    "key": "Sells_item",
+    "redi": "",
+    "typeid": "_wpg",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has item quantity",
+    "key": "Has_item_quantity",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has item cost",
+    "key": "Has_item_cost",
+    "redi": "",
+    "typeid": "_rec",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Is historical",
+    "key": "Is_historical",
+    "redi": "",
+    "typeid": "_boo",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has daily purchase cap",
+    "key": "Has_daily_purchase_cap",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has weekly purchase cap",
+    "key": "Has_weekly_purchase_cap",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has seasonal purchase cap",
+    "key": "Has_seasonal_purchase_cap",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has character purchase cap",
+    "key": "Has_character_purchase_cap",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   },
+   {
+    "label": "Has total purchase cap",
+    "key": "Has_total_purchase_cap",
+    "redi": "",
+    "typeid": "_num",
+    "mode": 1,
+    "format": ""
+   }
+  ],
+  "results": {
+   "Miyani#vendor2": {
+    "printouts": {
+     "Has vendor": [
+      {
+       "fulltext": "Miyani",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Miyani",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Sells item": [
+      {
+       "fulltext": "Philosopher's Stone",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Has item quantity": [
+      10
+     ],
+     "Has item cost": [
+      {
+       "Has item value": {
+        "label": "Has item value",
+        "key": "Has_item_value",
+        "typeid": "_txt",
+        "item": [
+         "1"
+        ]
+       },
+       "Has item currency": {
+        "label": "Has item currency",
+        "key": "Has_item_currency",
+        "typeid": "_txt",
+        "item": [
+         "Spirit Shard"
+        ]
+       }
+      }
+     ],
+     "Is historical": [
+      "f"
+     ],
+     "Has daily purchase cap": [],
+     "Has weekly purchase cap": [],
+     "Has seasonal purchase cap": [],
+     "Has character purchase cap": [],
+     "Has total purchase cap": []
+    },
+    "fulltext": "Miyani#vendor2",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Miyani#vendor2",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Mystic Forge Attendant#vendor2": {
+    "printouts": {
+     "Has vendor": [
+      {
+       "fulltext": "Mystic Forge Attendant",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Forge_Attendant",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Sells item": [
+      {
+       "fulltext": "Philosopher's Stone",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Has item quantity": [
+      10
+     ],
+     "Has item cost": [
+      {
+       "Has item value": {
+        "label": "Has item value",
+        "key": "Has_item_value",
+        "typeid": "_txt",
+        "item": [
+         "1"
+        ]
+       },
+       "Has item currency": {
+        "label": "Has item currency",
+        "key": "Has_item_currency",
+        "typeid": "_txt",
+        "item": [
+         "Spirit Shard"
+        ]
+       }
+      }
+     ],
+     "Is historical": [
+      "f"
+     ],
+     "Has daily purchase cap": [],
+     "Has weekly purchase cap": [],
+     "Has seasonal purchase cap": [],
+     "Has character purchase cap": [],
+     "Has total purchase cap": []
+    },
+    "fulltext": "Mystic Forge Attendant#vendor2",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Forge_Attendant#vendor2",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Mystic Forge Keeper#vendor2": {
+    "printouts": {
+     "Has vendor": [
+      {
+       "fulltext": "Mystic Forge Keeper",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Forge_Keeper",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Sells item": [
+      {
+       "fulltext": "Philosopher's Stone",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Has item quantity": [
+      10
+     ],
+     "Has item cost": [
+      {
+       "Has item value": {
+        "label": "Has item value",
+        "key": "Has_item_value",
+        "typeid": "_txt",
+        "item": [
+         "1"
+        ]
+       },
+       "Has item currency": {
+        "label": "Has item currency",
+        "key": "Has_item_currency",
+        "typeid": "_txt",
+        "item": [
+         "Spirit Shard"
+        ]
+       }
+      }
+     ],
+     "Is historical": [
+      "f"
+     ],
+     "Has daily purchase cap": [],
+     "Has weekly purchase cap": [],
+     "Has seasonal purchase cap": [],
+     "Has character purchase cap": [],
+     "Has total purchase cap": []
+    },
+    "fulltext": "Mystic Forge Keeper#vendor2",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Mystic_Forge_Keeper#vendor2",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Rift Researcher Adam#vendor9": {
+    "printouts": {
+     "Has vendor": [
+      {
+       "fulltext": "Rift Researcher Adam",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Rift_Researcher_Adam",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Sells item": [
+      {
+       "fulltext": "Philosopher's Stone",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Has item quantity": [
+      10
+     ],
+     "Has item cost": [
+      {
+       "Has item value": {
+        "label": "Has item value",
+        "key": "Has_item_value",
+        "typeid": "_txt",
+        "item": [
+         "1"
+        ]
+       },
+       "Has item currency": {
+        "label": "Has item currency",
+        "key": "Has_item_currency",
+        "typeid": "_txt",
+        "item": [
+         "Spirit Shard"
+        ]
+       }
+      }
+     ],
+     "Is historical": [
+      "f"
+     ],
+     "Has daily purchase cap": [],
+     "Has weekly purchase cap": [],
+     "Has seasonal purchase cap": [],
+     "Has character purchase cap": [],
+     "Has total purchase cap": []
+    },
+    "fulltext": "Rift Researcher Adam#vendor9",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Rift_Researcher_Adam#vendor9",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   },
+   "Super Adventure Box Trader#vendor36": {
+    "printouts": {
+     "Has vendor": [
+      {
+       "fulltext": "Super Adventure Box Trader",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Super_Adventure_Box_Trader",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Sells item": [
+      {
+       "fulltext": "Philosopher's Stone",
+       "fullurl": "https://wiki.guildwars2.com/wiki/Philosopher%27s_Stone",
+       "namespace": 0,
+       "exists": "1",
+       "displaytitle": ""
+      }
+     ],
+     "Has item quantity": [
+      6
+     ],
+     "Has item cost": [
+      {
+       "Has item value": {
+        "label": "Has item value",
+        "key": "Has_item_value",
+        "typeid": "_txt",
+        "item": [
+         "1"
+        ]
+       },
+       "Has item currency": {
+        "label": "Has item currency",
+        "key": "Has_item_currency",
+        "typeid": "_txt",
+        "item": [
+         "Bauble Bubble"
+        ]
+       }
+      },
+      {
+       "Has item value": {
+        "label": "Has item value",
+        "key": "Has_item_value",
+        "typeid": "_txt",
+        "item": [
+         "288"
+        ]
+       },
+       "Has item currency": {
+        "label": "Has item currency",
+        "key": "Has_item_currency",
+        "typeid": "_txt",
+        "item": [
+         "Coin"
+        ]
+       }
+      }
+     ],
+     "Is historical": [
+      "f"
+     ],
+     "Has daily purchase cap": [],
+     "Has weekly purchase cap": [],
+     "Has seasonal purchase cap": [],
+     "Has character purchase cap": [],
+     "Has total purchase cap": []
+    },
+    "fulltext": "Super Adventure Box Trader#vendor36",
+    "fullurl": "https://wiki.guildwars2.com/wiki/Super_Adventure_Box_Trader#vendor36",
+    "namespace": 0,
+    "exists": "1",
+    "displaytitle": ""
+   }
+  },
+  "serializer": "SMW\\Serializers\\QueryResultSerializer",
+  "version": 2,
+  "meta": {
+   "hash": "c3b61a281bfcb4a24d782df25f70aab2",
+   "count": 5,
+   "offset": 0,
+   "source": "",
+   "time": "0.123628"
+  }
+ }
+}

@@ -48,3 +48,29 @@ describe('WikiClient Mystic Forge recipes', () => {
     expect(queries[0]).toContain('[[Has ingredient with id::?;?;?;19721]]');
   });
 });
+
+// Real /api.php?action=ask response for [[Sells item::Philosopher's Stone]].
+const VENDOR_FIXTURE = readFileSync(new URL('./fixtures/wiki-vendor-offers.json', import.meta.url), 'utf8');
+
+describe('WikiClient vendor offers', () => {
+  it('parses vendor, quantity, every cost line and the historical flag', async () => {
+    const offers = await wiki(VENDOR_FIXTURE).client.vendorOffers("Philosopher's Stone");
+    expect(offers.find((o) => o.vendor === 'Miyani')).toMatchObject({
+      url: 'https://wiki.guildwars2.com/wiki/Miyani',
+      item: "Philosopher's Stone",
+      quantity: 10,
+      costs: [{ name: 'Spirit Shard', amount: 1 }],
+      historical: false,
+    });
+    expect(offers.find((o) => o.vendor === 'Super Adventure Box Trader')?.costs).toEqual([
+      { name: 'Bauble Bubble', amount: 1 },
+      { name: 'Coin', amount: 288 },
+    ]);
+  });
+
+  it('refuses titles that would change the query', async () => {
+    const { client, queries } = wiki();
+    expect(await client.vendorOffers('X]][[Has vendor::Y')).toEqual([]);
+    expect(queries).toHaveLength(0);
+  });
+});
