@@ -208,24 +208,11 @@ button.link {
   text-decoration: underline;
 }
 
-label.inline {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  margin-top: 8px;
-  font-weight: normal;
-  font-size: 0.9rem;
-}
-label.inline input {
-  margin: 0;
-}
-
 .key-saved {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  justify-content: space-between;
-  gap: 8px;
+  align-items: baseline;
+  gap: 4px 12px;
 }
 .key-saved p {
   margin: 0;
@@ -246,7 +233,6 @@ label.inline input {
   color: var(--ok);
 }
 
-.perm-list,
 .section-list,
 .section-copy,
 .progress {
@@ -254,17 +240,6 @@ label.inline input {
   margin: 0;
   padding: 0;
 }
-.perm-list li {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 0;
-}
-.perm-list .missing code {
-  color: var(--muted);
-}
-
 .badge {
   display: inline-block;
   min-width: 6.5em;
@@ -278,7 +253,6 @@ label.inline input {
   background: var(--code-bg);
   color: var(--muted);
 }
-.granted .badge,
 .badge.status-ok {
   background: var(--ok-bg);
   color: var(--ok);
@@ -295,39 +269,6 @@ label.inline input {
 code {
   font-family: var(--mono);
   font-size: 0.9em;
-}
-
-.warning {
-  margin-top: 12px;
-  padding: 10px 14px;
-  border-radius: 6px;
-  background: var(--warn-bg);
-  color: var(--text);
-  border-left: 4px solid var(--warn);
-}
-.warning p {
-  margin: 0.25em 0;
-}
-.warning ul {
-  margin: 0.25em 0;
-  padding-left: 1.25em;
-}
-
-.note {
-  margin-top: 16px;
-  border-top: 1px solid var(--border);
-  padding-top: 12px;
-}
-.note summary {
-  cursor: pointer;
-  font-weight: 600;
-}
-.note ul {
-  padding-left: 1.25em;
-  color: var(--muted);
-}
-.note li {
-  margin: 6px 0;
 }
 
 fieldset {

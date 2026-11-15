@@ -1,8 +1,6 @@
 import {
-  ALL_PERMISSIONS,
   Gw2ApiError,
   Gw2Client,
-  PERMISSION_HELP,
   TTL,
   looksLikeApiKey,
   missingPermissions,
@@ -47,15 +45,11 @@ function setStatus(node: HTMLElement, text: string, tone: Tone = 'info'): void {
 const keyForm = $<HTMLFormElement>('key-form');
 const keyInput = $<HTMLInputElement>('key-input');
 const keySubmit = $<HTMLButtonElement>('key-submit');
-const keyShow = $<HTMLInputElement>('key-show');
 const keySaved = $('key-saved');
 const keyName = $('key-name');
-const keyOrigin = $('key-origin');
+const keyPerms = $('key-perms');
 const keyForget = $<HTMLButtonElement>('key-forget');
 const keyStatus = $('key-status');
-const keyDetails = $('key-details');
-const permList = $('perm-list');
-const permWarning = $('perm-warning');
 
 const reportForm = $<HTMLFormElement>('report-form');
 const sectionList = $('section-list');
@@ -102,63 +96,19 @@ function tokenInfo(c: Gw2Client): Promise<TokenInfo> {
   return c.get('/v2/tokeninfo', { ttlMs: TOKEN_TTL });
 }
 
-function showKey(info: TokenInfo | undefined, origin: string): void {
+function showKey(info: TokenInfo | undefined): void {
   keyForm.hidden = true;
   keySaved.hidden = false;
   keyName.textContent = info ? `"${info.name}"` : '(not checked)';
-  keyOrigin.textContent = origin;
-  renderPermissions(info);
+  keyPerms.textContent = info ? `· ${info.permissions.join(', ')}` : '';
   renderSections();
 }
 
 function showKeyForm(): void {
   keyForm.hidden = false;
   keySaved.hidden = true;
-  keyDetails.hidden = true;
   renderSections();
 }
-
-function renderPermissions(info: TokenInfo | undefined): void {
-  permList.replaceChildren();
-  if (!info) {
-    keyDetails.hidden = true;
-    return;
-  }
-  keyDetails.hidden = false;
-  const have = new Set(info.permissions);
-  for (const p of ALL_PERMISSIONS) {
-    const granted = have.has(p);
-    permList.append(
-      el(
-        'li',
-        { className: granted ? 'granted' : 'missing' },
-        el('span', { className: 'badge', text: granted ? 'granted' : 'not granted' }),
-        el('code', { text: p }),
-        el('span', { className: 'muted', text: ` ${PERMISSION_HELP[p]}` }),
-      ),
-    );
-  }
-  const uncovered = SECTIONS.filter((s) => missingPermissions(info.permissions, s.permissions).length);
-  permWarning.replaceChildren();
-  permWarning.hidden = uncovered.length === 0;
-  if (uncovered.length) {
-    permWarning.append(
-      el('p', { text: 'This key can\'t produce these sections:' }),
-      el(
-        'ul',
-        {},
-        ...uncovered.map((s) =>
-          el('li', { text: `${s.title} (needs ${missingPermissions(info.permissions, s.permissions).join(', ')})` }),
-        ),
-      ),
-      el('p', { text: 'To include them, create a key with those permissions too.' }),
-    );
-  }
-}
-
-keyShow.addEventListener('change', () => {
-  keyInput.type = keyShow.checked ? 'text' : 'password';
-});
 
 keyForm.addEventListener('submit', (event) => {
   event.preventDefault();
@@ -173,11 +123,7 @@ async function submitKey(): Promise<void> {
     return;
   }
   if (!looksLikeApiKey(key)) {
-    setStatus(
-      keyStatus,
-      'That doesn\'t look like a GW2 API key. Keys are 72 characters of letters, digits and dashes, like XXXXXXXX-XXXX-...-XXXXXXXXXXXX.',
-      'error',
-    );
+    setStatus(keyStatus, "That doesn't look like a GW2 API key.", 'error');
     keyInput.setAttribute('aria-invalid', 'true');
     keyInput.focus();
     return;
@@ -185,21 +131,21 @@ async function submitKey(): Promise<void> {
   keyInput.removeAttribute('aria-invalid');
   keySubmit.disabled = true;
   keyInput.disabled = true;
-  setStatus(keyStatus, 'Checking the key with api.guildwars2.com...');
+  setStatus(keyStatus, 'Checking the key...');
   try {
     const checked = await checkKey(key);
-    let origin = 'saved, encrypted, in this browser.';
+    let note = '';
     try {
       await vault.saveKey(key);
     } catch (err) {
       vault.useForSession(key);
-      origin = `for this visit only: it couldn't be saved in this browser (${describeError(err)}).`;
+      note = `Using the key for this visit only: it couldn't be saved in this browser (${describeError(err)}).`;
     }
     client = checked.c;
     token = checked.info;
     keyInput.value = '';
-    showKey(token, origin);
-    setStatus(keyStatus, `Key accepted. Permissions: ${token.permissions.join(', ')}.`, 'ok');
+    showKey(token);
+    setStatus(keyStatus, note, note ? 'error' : 'ok');
     generateBtn.focus();
   } catch (err) {
     keyInput.setAttribute('aria-invalid', 'true');
@@ -217,7 +163,7 @@ keyForget.addEventListener('click', () => {
 async function forget(): Promise<void> {
   try {
     await vault.forgetKey();
-    setStatus(keyStatus, 'Key deleted from this browser.', 'ok');
+    setStatus(keyStatus, 'Key forgotten.', 'ok');
   } catch (err) {
     vault.clearSession();
     setStatus(keyStatus, `Couldn't delete the saved key: ${describeError(err)}`, 'error');
@@ -242,17 +188,17 @@ async function restoreKey(): Promise<void> {
     if (!(await vault.hasSavedKey())) return;
     key = await vault.loadKey();
   } catch (err) {
-    showKey(undefined, '');
+    showKey(undefined);
     setStatus(keyStatus, describeError(err), 'error');
     return;
   }
   if (!key) return;
   client = new Gw2Client({ apiKey: key, cache });
-  showKey(undefined, 'saved, encrypted, in this browser.');
+  showKey(undefined);
   setStatus(keyStatus, 'Checking the saved key...');
   try {
     token = await tokenInfo(client);
-    showKey(token, 'saved, encrypted, in this browser.');
+    showKey(token);
     setStatus(keyStatus, '');
   } catch (err) {
     setStatus(keyStatus, `${describeError(err)}. If the key was deleted or changed, forget it and enter a new one.`, 'error');
