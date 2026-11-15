@@ -85,8 +85,10 @@ export function createServer(): McpServer {
       description:
         'Markdown report of the account, by section. Use for broad questions ("what is my account worth", "summarize my progress") and pick only the sections you need. ' +
         `Sections: ${sectionList}. ` +
+        'Starts with an "At a glance" block of precomputed totals (wealth, Wizard\'s Vault, lockouts, trading post); prefer those over summing tables. ' +
+        'detail "summary" (default) shows the most valuable rows of long lists and the rest as compact `Name ×count` lines; "full" puts every row in tables. ' +
         'Sections the key lacks permissions for are skipped with a note. valuation prices items at TP buy orders (extra calls). ' +
-        'Cost: 2-10 API calls per section; a full report with valuation can take 50+ calls and be long, so prefer specific sections.',
+        'Cost: 2-10 API calls per section; a full report is ~12k tokens in summary mode, so prefer specific sections.',
       inputSchema: {
         sections: z
           .array(z.enum(SECTION_IDS as [string, ...string[]]))
@@ -94,13 +96,17 @@ export function createServer(): McpServer {
           .optional()
           .describe('Section ids to include; all when omitted.'),
         valuation: z.boolean().default(true).describe('Add trading post values to items and materials.'),
-        max_rows: z.number().int().min(5).max(1000).default(100).describe('Max rows in long tables.'),
+        detail: z
+          .enum(['summary', 'full'])
+          .default('summary')
+          .describe('summary: top rows in tables, the rest as compact lines. full: every row in tables (much longer).'),
+        max_rows: z.number().int().min(5).max(1000).default(200).describe('Max rows in long tables when detail is full.'),
       },
       annotations: READ_ONLY,
     },
-    ({ sections, valuation, max_rows }) =>
+    ({ sections, valuation, detail, max_rows }) =>
       withClient(async (c) => {
-        const report = await buildReport(c, { ...(sections ? { sections } : {}), valuation, maxRows: max_rows });
+        const report = await buildReport(c, { ...(sections ? { sections } : {}), valuation, detail, maxRows: max_rows });
         return report.markdown;
       }),
   );

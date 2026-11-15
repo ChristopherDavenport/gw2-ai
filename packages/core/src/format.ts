@@ -77,3 +77,31 @@ export function plain(text: string | undefined): string {
     .replace(/\s+/g, ' ')
     .trim();
 }
+
+/**
+ * The long tail of a list as one line: `Wool Scrap ×7, Soft Wood Log ×8`;
+ * a count of 1 is left off.
+ * About a third of the tokens of the same rows as a table, and every name and
+ * count is still there for a model to find.
+ */
+export function inlineCounts(entries: readonly { name: string; count: number }[]): string {
+  return entries.map((e) => (e.count === 1 ? text(e.name) : `${text(e.name)} ×${num(e.count)}`)).join(', ');
+}
+
+const MINOR_WORDS = new Set(['a', 'an', 'and', 'at', 'for', 'in', 'of', 'on', 'or', 'the', 'to']);
+
+/**
+ * `claw_of_jormag` → `Claw of Jormag`, `inquest_golem_mark_ii` → `Inquest Golem
+ * Mark II`: readable names for API ids that are words.
+ */
+export function titleCase(id: string): string {
+  return id
+    .split('_')
+    .filter(Boolean)
+    .map((w, i) => {
+      if (/^[ivx]+$/.test(w) && w.length <= 4) return w.toUpperCase();
+      if (i > 0 && MINOR_WORDS.has(w)) return w;
+      return w[0]!.toUpperCase() + w.slice(1);
+    })
+    .join(' ');
+}

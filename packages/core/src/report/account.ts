@@ -3,6 +3,9 @@ import { coins, day, hours, num, table, text } from '../format.js';
 import { ACCOUNT, type ReportContext, type ReportSection } from './context.js';
 
 const COIN_ID = 1;
+const KARMA_ID = 2;
+const LAUREL_ID = 3;
+const GEM_ID = 4;
 
 export const overview: ReportSection = {
   id: 'overview',
@@ -23,6 +26,8 @@ export const overview: ReportSection = {
       }),
     );
 
+    ctx.facts.push({ order: 0, label: 'Account', value: `${text(a.name)}, created ${day(a.created)}, played ${hours(a.age)}` });
+    ctx.facts.push({ order: 1, label: 'Access', value: a.access.join(', ') });
     const lines = [
       `- **Account:** ${text(a.name)} (\`${a.id}\`)`,
       `- **Created:** ${day(a.created)}; played ${hours(a.age)}`,
@@ -63,6 +68,13 @@ export const wallet: ReportSection = {
       ctx.client.get('/v2/account/wallet', ACCOUNT),
       ctx.client.all('/v2/currencies').then(byId),
     ]);
+    const amount = (id: number) => entries.find((e) => e.id === id)?.value ?? 0;
+    ctx.totals.wallet = amount(COIN_ID);
+    ctx.facts.push({
+      order: 20,
+      label: 'Wallet',
+      value: `${coins(amount(COIN_ID))}, ${num(amount(GEM_ID))} gems, ${num(amount(KARMA_ID))} karma, ${num(amount(LAUREL_ID))} laurels`,
+    });
     const rows = entries
       .filter((e) => e.value > 0)
       .sort((x, y) => (currencies.get(x.id)?.order ?? 999) - (currencies.get(y.id)?.order ?? 999))
@@ -82,6 +94,8 @@ export const characters: ReportSection = {
   permissions: ['characters'],
   async render(ctx) {
     const chars = await ctx.client.all('/v2/characters', ACCOUNT);
+    const maxLevel = chars.filter((c) => c.level === 80).length;
+    ctx.facts.push({ order: 10, label: 'Characters', value: `${chars.length} (${maxLevel} at level 80)` });
     const specIds = new Set<number>();
     for (const ch of chars) {
       const active = ch.build_tabs?.find((t) => t.is_active);

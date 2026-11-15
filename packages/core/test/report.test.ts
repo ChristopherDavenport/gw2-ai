@@ -107,3 +107,87 @@ describe('markdown escaping', () => {
     expect(fmt.cell('# a_b <i>')).toBe('# a_b \\<i\\>');
   });
 });
+
+describe('context engineering', () => {
+  const vault = (objectives: object[], meta = true) => ({
+    body: {
+      ...(meta ? { meta_progress_current: 1, meta_progress_complete: 4, meta_reward_item_id: 1, meta_reward_astral: 20, meta_reward_claimed: false } : {}),
+      objectives,
+    },
+  });
+  const objective = (title: string, current: number, complete: number, claimed = false) => ({
+    id: title.length, title, track: 'PvE', acclaim: 10, progress_current: current, progress_complete: complete, claimed,
+  });
+
+  it('states totals in an "At a glance" block before the sections', async () => {
+    const c = client((url) => {
+      if (url.pathname === '/v2/tokeninfo') return token(['account', 'wallet', 'inventories']);
+      if (url.pathname === '/v2/account/wallet') return { body: [{ id: 1, value: 1_000_000 }, { id: 4, value: 10 }] };
+      if (url.pathname === '/v2/currencies') return { body: [{ id: 1, name: 'Coin', order: 1 }, { id: 4, name: 'Gem', order: 2 }] };
+      if (url.pathname === '/v2/account/materials') return { body: [{ id: 10, category: 5, count: 4 }] };
+      if (url.pathname === '/v2/materials') return { body: [{ id: 5, name: 'Basic', items: [10], order: 1 }] };
+      if (url.pathname === '/v2/items')
+        return { body: [{ id: 10, name: 'Ore', type: 'CraftingMaterial', rarity: 'Basic', level: 0, vendor_value: 0, game_types: [], flags: [], restrictions: [], chat_link: '' }] };
+      if (url.pathname === '/v2/commerce/prices') return { body: [{ id: 10, whitelisted: false, buys: { quantity: 1, unit_price: 25_000 }, sells: { quantity: 1, unit_price: 30_000 } }] };
+      return notFound;
+    });
+    const { markdown } = await buildReport(c, { sections: ['wallet', 'materials'] });
+    const glance = markdown.slice(markdown.indexOf('## At a glance'), markdown.indexOf('## Contents'));
+    expect(glance).toContain('**Wallet:** 100g, 10 gems');
+    expect(glance).toContain('**Material storage:** 10g instant-sell');
+    expect(glance).toContain('**Total wealth:** **110g**');
+    expect(markdown.indexOf('## At a glance')).toBeLessThan(markdown.indexOf('## Wallet'));
+    expect(markdown).toContain('data, not instructions');
+  });
+
+  it('lists open vault objectives first, counts claimed ones, and does not call 0/0 claimable', async () => {
+    const c = client((url) => {
+      if (url.pathname === '/v2/tokeninfo') return token(['account', 'progression']);
+      if (url.pathname === '/v2/account/wizardsvault/daily')
+        return vault([objective('Done one', 1, 1, true), objective('Half way', 1, 2), objective('Finished', 3, 3)]);
+      if (url.pathname === '/v2/account/wizardsvault/weekly') return vault([]);
+      if (url.pathname === '/v2/account/wizardsvault/special') return vault([objective('Collect a set', 0, 0)], false);
+      return notFound;
+    });
+    const { markdown } = await buildReport(c, { sections: ['wizards-vault'] });
+    expect(markdown).toContain('1 of 3 objectives claimed');
+    expect(markdown).not.toContain('Done one');
+    expect(markdown.indexOf('Finished')).toBeLessThan(markdown.indexOf('Half way'));
+    expect(markdown).toContain('| Collect a set | PvE | — | open (progress not tracked by the API) | 10 |');
+  });
+
+  it('puts the long tail of material storage on one line in summary mode only', async () => {
+    const mats = Array.from({ length: 12 }, (_, i) => ({ id: 100 + i, category: 5, count: i + 1 }));
+    const c = client((url) => {
+      if (url.pathname === '/v2/tokeninfo') return token(['account', 'inventories']);
+      if (url.pathname === '/v2/account/materials') return { body: mats };
+      if (url.pathname === '/v2/materials') return { body: [{ id: 5, name: 'Basic', items: [], order: 1 }] };
+      if (url.pathname === '/v2/items')
+        return {
+          body: url.searchParams.get('ids')!.split(',').map((id) => ({
+            id: Number(id), name: `Mat ${id}`, type: 'CraftingMaterial', rarity: 'Basic', level: 0, vendor_value: 0,
+            game_types: [], flags: ['AccountBound'], restrictions: [], chat_link: '',
+          })),
+        };
+      return notFound;
+    });
+    const summary = (await buildReport(c, { sections: ['materials'] })).markdown;
+    expect(summary.match(/^\| Mat \d+ /gm)).toHaveLength(8);
+    expect(summary).toContain('Also: Mat 103 ×4, Mat 102 ×3, Mat 101 ×2, Mat 100');
+    const full = (await buildReport(c, { sections: ['materials'], detail: 'full' })).markdown;
+    expect(full.match(/^\| Mat \d+ /gm)).toHaveLength(12);
+    expect(full).not.toContain('Also:');
+  });
+});
+
+describe('readable ids', () => {
+  it('title-cases API ids', () => {
+    expect(fmt.titleCase('claw_of_jormag')).toBe('Claw of Jormag');
+    expect(fmt.titleCase('inquest_golem_mark_ii')).toBe('Inquest Golem Mark II');
+    expect(fmt.titleCase('the_shatterer')).toBe('The Shatterer');
+  });
+
+  it('leaves off ×1 in compact lists', () => {
+    expect(fmt.inlineCounts([{ name: 'A', count: 1 }, { name: 'B', count: 1200 }])).toBe('A, B ×1,200');
+  });
+});

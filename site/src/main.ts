@@ -54,6 +54,7 @@ const keyStatus = $('key-status');
 const reportForm = $<HTMLFormElement>('report-form');
 const sectionList = $('section-list');
 const optValuation = $<HTMLInputElement>('opt-valuation');
+const optFull = $<HTMLInputElement>('opt-full');
 const generateBtn = $<HTMLButtonElement>('generate');
 const generateHint = $('generate-hint');
 const reportStatus = $('report-status');
@@ -298,6 +299,7 @@ async function generate(): Promise<void> {
     const result = await buildReport(client, {
       sections: chosen,
       valuation: optValuation.checked,
+      detail: optFull.checked ? 'full' : 'summary',
       onSection: (r) => {
         const row = rows.get(r.id);
         if (!row) return;

@@ -25,6 +25,18 @@ export const tradingPost: ReportSection = {
       ctx.client.many('/v2/commerce/prices', [...buys, ...sells].map((t) => t.item_id)),
     ]);
 
+    const outbid = buys.filter((t) => (prices.get(t.item_id)?.buys.unit_price ?? 0) > t.price).length;
+    const undercut = sells.filter((t) => {
+      const lowest = prices.get(t.item_id)?.sells.unit_price;
+      return lowest !== undefined && lowest < t.price;
+    }).length;
+    ctx.facts.push({
+      order: 50,
+      label: 'Trading post',
+      value:
+        `delivery box ${coins(delivery.coins)} and ${delivery.items.length} item stacks; ` +
+        `${buys.length} buy orders (${outbid} outbid); ${sells.length} sell listings (${undercut} undercut)`,
+    });
     const deliveryRows = delivery.items.map((i) => [nameOf(defs, i.id), num(i.count), i.id]);
     const buyRows = buys.map((t) => {
       const best = prices.get(t.item_id)?.buys.unit_price;
@@ -36,17 +48,18 @@ export const tradingPost: ReportSection = {
       const status = best === undefined ? '' : best < t.price ? `undercut (lowest ${coins(best)})` : 'lowest listing';
       return [nameOf(defs, t.item_id), num(t.quantity), coins(t.price), status, day(t.created), t.item_id];
     });
+    const historyRows = ctx.options.detail === 'summary' ? 10 : 25;
     const history = (list: CommerceCompletedTransaction[]) =>
       list
-        .slice(0, 25)
+        .slice(0, historyRows)
         .map((t) => [nameOf(defs, t.item_id), num(t.quantity), coins(t.price), day(t.purchased), t.item_id]);
 
     return [
       `### Delivery box\n\nCoins waiting: **${coins(delivery.coins)}**\n\n${table(['Item', 'Count', 'Item id'], deliveryRows)}`,
       `### Open buy orders\n\n${table(['Item', 'Qty', 'Unit price', 'Status', 'Placed', 'Item id'], buyRows)}`,
       `### Open sell listings\n\n${table(['Item', 'Qty', 'Unit price', 'Status', 'Listed', 'Item id'], sellRows)}`,
-      `### Recent sales (last 90 days, newest 25)\n\n${table(['Item', 'Qty', 'Unit price', 'Sold', 'Item id'], history(sold))}`,
-      `### Recent purchases (last 90 days, newest 25)\n\n${table(['Item', 'Qty', 'Unit price', 'Bought', 'Item id'], history(bought))}`,
+      `### Recent sales (last 90 days, newest ${historyRows})\n\n${table(['Item', 'Qty', 'Unit price', 'Sold', 'Item id'], history(sold))}`,
+      `### Recent purchases (last 90 days, newest ${historyRows})\n\n${table(['Item', 'Qty', 'Unit price', 'Bought', 'Item id'], history(bought))}`,
     ].join('\n\n');
   },
 };

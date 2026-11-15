@@ -1,6 +1,6 @@
 import type { AccountMaterial, CommercePrice, InventorySlot, Item } from '@gw2-ai/client';
 import { byId, nameOf } from '../catalog.js';
-import { coins, num, table } from '../format.js';
+import { coins, inlineCounts, num, table } from '../format.js';
 import { ACCOUNT, type ReportContext, type ReportSection } from './context.js';
 
 interface Holding {
@@ -56,6 +56,10 @@ export async function collectHoldings(ctx: ReportContext): Promise<{ holdings: M
   return { holdings, notes };
 }
 
+/** Rows shown as a table in summary mode; the rest go on one compact line. */
+const SUMMARY_ITEM_ROWS = 30;
+const SUMMARY_MATERIAL_ROWS = 8;
+
 export const items: ReportSection = {
   id: 'items',
   title: 'Items (bank, shared slots, character bags)',
@@ -69,18 +73,44 @@ export const items: ReportSection = {
     list.sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || b.h.count - a.h.count);
 
     const total = list.reduce((sum, x) => sum + (x.v ?? 0), 0);
-    const rows = list.slice(0, ctx.options.maxRows).map(({ h, v }) => {
+    if (ctx.options.valuation) {
+      ctx.totals.items = total;
+      ctx.facts.push({ order: 31, label: 'Items (bank, bags)', value: `${coins(total)} instant-sell, ${num(holdings.size)} distinct items` });
+    }
+    const summary = ctx.options.detail === 'summary';
+    const limit = summary ? SUMMARY_ITEM_ROWS : ctx.options.maxRows;
+    const rows = list.slice(0, limit).map(({ h, v }) => {
       const def = defs.get(h.id);
       const where = [...h.where].map(([k, n]) => `${k} ${n}`).join(', ');
       return [def?.name ?? `#${h.id}`, def?.rarity, num(h.count), v === undefined ? '' : coins(v), where, h.id];
     });
+    const rest = list.slice(limit);
     const head = [
       `${num(holdings.size)} distinct items.`,
       ctx.options.valuation ? ` Instant-sell value of tradable items: **${coins(total)}**.` : '',
-      list.length > ctx.options.maxRows ? ` Showing the top ${ctx.options.maxRows}.` : '',
+      rest.length ? ` The ${num(limit)} most valuable are in the table.` : '',
       notes.length ? ` (${notes.join('; ')})` : '',
     ].join('');
-    return `${head}\n\n${table(['Item', 'Rarity', 'Count', 'Value', 'Where', 'Item id'], rows)}`;
+    let tail = '';
+    if (rest.length && summary) {
+      const restValue = rest.reduce((sum, x) => sum + (x.v ?? 0), 0);
+      // Grouped by item type so "which ascended weapons do I have?" is a scan of one line.
+      const byType = new Map<string, { name: string; count: number }[]>();
+      for (const { h } of rest) {
+        const def = defs.get(h.id);
+        const type = def?.type ?? 'Unknown';
+        byType.set(type, [...(byType.get(type) ?? []), { name: def?.name ?? `#${h.id}`, count: h.count }]);
+      }
+      const lines = [...byType]
+        .sort((a, b) => b[1].length - a[1].length)
+        .map(([type, list]) => `- **${type}** (${list.length}): ${inlineCounts(list)}`);
+      tail =
+        `\n\nAlso held, by type (${num(rest.length)} more, ${coins(restValue)} together; ` +
+        `most are account bound so have no price; locations via the gw2_find_item tool):\n\n${lines.join('\n')}`;
+    } else if (rest.length) {
+      tail = `\n\n${num(rest.length)} lower-value items not shown (raise maxRows).`;
+    }
+    return `${head}\n\n${table(['Item', 'Rarity', 'Count', 'Value', 'Where', 'Item id'], rows)}${tail}`;
   },
 };
 
@@ -97,6 +127,7 @@ export const materials: ReportSection = {
     const held = mats.filter((m) => m.count > 0);
     const defs = await ctx.client.many('/v2/items', held.map((m) => m.id));
     const prices = await pricesFor(ctx, defs);
+    const summary = ctx.options.detail === 'summary';
 
     const byCat = new Map<number, AccountMaterial[]>();
     for (const m of held) byCat.set(m.category, [...(byCat.get(m.category) ?? []), m]);
@@ -104,18 +135,24 @@ export const materials: ReportSection = {
     const sections = [...byCat]
       .sort(([a], [b]) => (categories.get(a)?.order ?? 0) - (categories.get(b)?.order ?? 0))
       .map(([cat, list]) => {
-        let catTotal = 0;
-        const rows = list
+        const valued = list
           .map((m) => ({ m, v: value(prices, m.id, m.count) }))
-          .sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || b.m.count - a.m.count)
-          .map(({ m, v }) => {
-            catTotal += v ?? 0;
-            return [nameOf(defs, m.id), num(m.count), v === undefined ? '' : coins(v), m.id];
-          });
+          .sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || b.m.count - a.m.count);
+        const catTotal = valued.reduce((sum, x) => sum + (x.v ?? 0), 0);
         grand += catTotal;
+        const shown = summary ? valued.slice(0, SUMMARY_MATERIAL_ROWS) : valued;
+        const rest = summary ? valued.slice(SUMMARY_MATERIAL_ROWS) : [];
+        const rows = shown.map(({ m, v }) => [nameOf(defs, m.id), num(m.count), v === undefined ? '' : coins(v), m.id]);
+        const tail = rest.length
+          ? `\n\nAlso: ${inlineCounts(rest.map(({ m }) => ({ name: nameOf(defs, m.id), count: m.count })))}`
+          : '';
         const valueNote = ctx.options.valuation ? ` — ${coins(catTotal)}` : '';
-        return `### ${nameOf(categories, cat)}${valueNote}\n\n${table(['Material', 'Count', 'Value', 'Item id'], rows)}`;
+        return `### ${nameOf(categories, cat)}${valueNote}\n\n${table(['Material', 'Count', 'Value', 'Item id'], rows)}${tail}`;
       });
+    if (ctx.options.valuation) {
+      ctx.totals.materials = grand;
+      ctx.facts.push({ order: 30, label: 'Material storage', value: `${coins(grand)} instant-sell, ${num(held.length)} materials` });
+    }
     const head = ctx.options.valuation ? `Instant-sell value: **${coins(grand)}**.\n\n` : '';
     return head + sections.join('\n\n');
   },
