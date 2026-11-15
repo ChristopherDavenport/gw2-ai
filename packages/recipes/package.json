@@ -1,6 +1,6 @@
 {
   "name": "@gw2kit/recipes",
-  "version": "0.1.0",
+  "version": "0.0.1",
   "description": "Guild Wars 2 recipe trees: crafting, Mystic Forge and NPC vendor routes for any item, priced at the trading post, with buy-or-craft choices, holdings, and vendor costs in wallet currencies. Fetching and solving are separate, so trees can be solved offline from saved data.",
   "keywords": [
     "guild-wars-2",

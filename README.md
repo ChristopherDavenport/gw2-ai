@@ -16,7 +16,7 @@ The Claude Code plugin in this repository bundles the skills and the three serve
 
 ### Claude Code plugin
 
-> **Not published yet.** The servers will be distributed as npm packages (`@gw2-ai/mcp-account`, `@gw2-ai/mcp-data`, `@gw2-ai/mcp-wiki`). Until the first release, use the [local development setup](#development): this repository's `.mcp.json` runs the servers from a local build.
+> **Experimental.** Releases are `0.0.x` while the tools and the `@gw2kit` library APIs settle; expect breaking changes between versions.
 
 Inside Claude Code:
 

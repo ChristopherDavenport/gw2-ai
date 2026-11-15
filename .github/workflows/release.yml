@@ -1,7 +1,7 @@
 name: Release
 
 # Publishes the @gw2kit libraries (client, wiki, recipes), @gw2-ai/core and
-# the three MCP servers to npm when a version tag (v0.1.0, ...) is pushed.
+# the three MCP servers to npm when a version tag (v0.0.1, ...) is pushed.
 # Every package's version must match the tag, and .claude-plugin/plugin.json
 # must pin the same version for the servers; the check step enforces both.
 #

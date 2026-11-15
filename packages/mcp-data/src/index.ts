@@ -8,7 +8,7 @@ import * as tools from './tools.js';
 import { MAX_OUTPUT, READ_ONLY, log, run } from './util.js';
 
 
-const VERSION = '0.1.0';
+const VERSION = '0.0.1';
 
 export function createServer(): McpServer {
   // No key, ever: this server only reads public endpoints.
