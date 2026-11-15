@@ -1,6 +1,6 @@
 {
   "name": "@gw2kit/wiki",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Guild Wars 2 wiki client: search, page text, Semantic MediaWiki queries, and typed Mystic Forge recipes and NPC vendor offers read from the wiki's structured data. Runs in Node and browsers.",
   "keywords": [
     "guild-wars-2",

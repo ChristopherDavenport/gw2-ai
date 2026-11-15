@@ -1,6 +1,6 @@
 {
   "name": "@gw2-ai/core",
-  "version": "0.0.1",
+  "version": "0.0.2",
   "description": "Markdown for AI assistants built on @gw2kit: the Guild Wars 2 account report, character pages, recipe-tree rendering and formatting helpers.",
   "keywords": [
     "guild-wars-2",

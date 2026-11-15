@@ -11,7 +11,7 @@ import { ACCOUNT_PATH_HELP } from './paths.js';
 import { setKeyCommand } from './set-key.js';
 import * as tools from './tools.js';
 
-const VERSION = '0.0.1';
+const VERSION = '0.0.2';
 const READ_ONLY = { readOnlyHint: true, openWorldHint: true } as const;
 
 /** Log to stderr; stdout carries the MCP transport. Never pass the key here. */
