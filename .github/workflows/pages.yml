@@ -16,9 +16,6 @@ concurrency:
 
 jobs:
   build:
-    # While the repository is private, deploy only when run by hand: a Pages
-    # site is public even when its repository is not.
-    if: github.event_name == 'workflow_dispatch' || !github.event.repository.private
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v7
