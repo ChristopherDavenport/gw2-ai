@@ -2,8 +2,25 @@
   "name": "@gw2-ai/client",
   "version": "0.1.0",
   "description": "Fully typed Guild Wars 2 API client: every /v2 route, automatic auth, batching, caching and rate limiting. No dependencies; runs in Node and browsers.",
-  "type": "module",
+  "keywords": [
+    "guild-wars-2",
+    "gw2",
+    "gw2-api",
+    "api-client",
+    "typescript"
+  ],
   "license": "MIT",
+  "author": "Christopher Davenport",
+  "homepage": "https://github.com/ChristopherDavenport/gw2-ai/tree/main/packages/client#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChristopherDavenport/gw2-ai.git",
+    "directory": "packages/client"
+  },
+  "bugs": {
+    "url": "https://github.com/ChristopherDavenport/gw2-ai/issues"
+  },
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -13,9 +30,18 @@
     }
   },
   "files": [
-    "dist"
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
   ],
   "sideEffects": false,
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",

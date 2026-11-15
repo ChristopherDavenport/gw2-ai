@@ -1,10 +1,41 @@
 {
   "name": "@gw2-ai/mcp-account",
   "version": "0.1.0",
-  "type": "module",
+  "description": "MCP server for your Guild Wars 2 account: AI-ready markdown reports, item locations, character builds and crafting shopping lists. Needs a GW2 API key.",
+  "keywords": [
+    "guild-wars-2",
+    "gw2",
+    "mcp",
+    "model-context-protocol",
+    "mcp-server"
+  ],
   "license": "MIT",
-  "bin": { "gw2-mcp-account": "./dist/index.js" },
-  "files": ["dist"],
+  "author": "Christopher Davenport",
+  "homepage": "https://github.com/ChristopherDavenport/gw2-ai/tree/main/packages/mcp-account#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChristopherDavenport/gw2-ai.git",
+    "directory": "packages/mcp-account"
+  },
+  "bugs": {
+    "url": "https://github.com/ChristopherDavenport/gw2-ai/issues"
+  },
+  "type": "module",
+  "bin": {
+    "gw2-mcp-account": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

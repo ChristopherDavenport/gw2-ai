@@ -16,35 +16,16 @@ The Claude Code plugin in this repository bundles the skills and the three serve
 
 ### Claude Code plugin
 
-The MCP servers are TypeScript and `dist/` isn't committed, so the plugin must be built after you get it. Requirements: Node.js 22+ and pnpm 10 (`corepack enable` provides it).
+> **Not published yet.** The servers will be distributed as npm packages (`@gw2-ai/mcp-account`, `@gw2-ai/mcp-data`, `@gw2-ai/mcp-wiki`). Until the first release, use the [local development setup](#development): this repository's `.mcp.json` runs the servers from a local build.
 
-**Recommended: install from a local clone.** Claude Code loads a plugin from a local marketplace in place, so you build once and updates are a `git pull`.
-
-```sh
-git clone https://github.com/ChristopherDavenport/gw2-ai.git
-cd gw2-ai
-pnpm install && pnpm build
-claude plugin marketplace add ./
-claude plugin install gw2-ai@gw2-ai
-```
-
-To update: `git pull && pnpm install && pnpm build`, then run `/reload-plugins` in Claude Code.
-
-**From GitHub.** Inside Claude Code:
+Inside Claude Code:
 
 ```
 /plugin marketplace add ChristopherDavenport/gw2-ai
 /plugin install gw2-ai@gw2-ai
 ```
 
-Claude Code copies the plugin into its cache without building it, so the servers won't start until you build that copy:
-
-```sh
-cd ~/.claude/plugins/cache/gw2-ai/gw2-ai/0.1.0
-pnpm install && pnpm build
-```
-
-Then run `/reload-plugins`. Repeat after each plugin update (the version directory changes). This is a known rough edge until the servers are published as packages.
+The plugin runs each server with `npx -y @gw2-ai/mcp-<name>@<version>`, so the only requirement is Node.js 22+. There is nothing to build.
 
 **Check it works:** run `/mcp` and look for `plugin:gw2-ai:gw2-account`, `plugin:gw2-ai:gw2-data` and `plugin:gw2-ai:gw2-wiki`. Then ask something like "what's in my Wizard's Vault today?" or "what does a Glob of Ectoplasm sell for?". The skills are also available as `/gw2-ai:gw2-account`, `/gw2-ai:gw2-trading-and-crafting`, `/gw2-ai:gw2-goals` and `/gw2-ai:gw2-api`.
 
@@ -52,34 +33,29 @@ Then run `/reload-plugins`. Repeat after each plugin update (the version directo
 
 1. The `GW2_API_KEY` environment variable of the shell that started Claude Code.
 2. The plugin's `api_key` option. `/plugin` asks for it when you install or enable the plugin; change it later with `/plugin configure gw2-ai@gw2-ai`. It is marked sensitive, so Claude Code stores it in your system's credential store, not in `settings.json`.
-3. The file `~/.config/gw2-ai/api-key` (`$XDG_CONFIG_HOME/gw2-ai/api-key` if that is set), written with mode 0600 by the server's `set-key` command: `node packages/mcp-account/dist/index.js set-key` (or `gw2-mcp-account set-key` if the package is on your `PATH`). A blank `GW2_API_KEY` counts as unset; a non-blank value that isn't a valid key is an error and does not fall back to the file.
+3. The file `~/.config/gw2-ai/api-key` (`$XDG_CONFIG_HOME/gw2-ai/api-key` if that is set), written with mode 0600 by `npx @gw2-ai/mcp-account set-key`. A blank `GW2_API_KEY` counts as unset; a non-blank value that isn't a valid key is an error and does not fall back to the file.
 
 ### Claude Desktop and other MCP clients
 
-Build a clone as above, then add the servers to your client's config with absolute paths. For Claude Desktop the file is `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
+Add the servers to your client's config. For Claude Desktop the file is `claude_desktop_config.json` (macOS: `~/Library/Application Support/Claude/`, Windows: `%APPDATA%\Claude\`):
 
 ```json
 {
   "mcpServers": {
-    "gw2-account": {
-      "command": "node",
-      "args": ["/absolute/path/to/gw2-ai/packages/mcp-account/dist/index.js"]
-    },
-    "gw2-data": {
-      "command": "node",
-      "args": ["/absolute/path/to/gw2-ai/packages/mcp-data/dist/index.js"]
-    },
-    "gw2-wiki": {
-      "command": "node",
-      "args": ["/absolute/path/to/gw2-ai/packages/mcp-wiki/dist/index.js"]
-    }
+    "gw2-account": { "command": "npx", "args": ["-y", "@gw2-ai/mcp-account"] },
+    "gw2-data": { "command": "npx", "args": ["-y", "@gw2-ai/mcp-data"] },
+    "gw2-wiki": { "command": "npx", "args": ["-y", "@gw2-ai/mcp-wiki"] }
   }
 }
 ```
 
-Give `gw2-account` its key with `set-key` (above). You can instead add `"env": { "GW2_API_KEY": "..." }` to its entry, but that leaves the key in plain text in the config file.
+Give `gw2-account` its key once with `npx @gw2-ai/mcp-account set-key` (reads the key without echoing it, checks it, saves it with mode 0600). You can instead add `"env": { "GW2_API_KEY": "..." }` to its entry, but that leaves the key in plain text in the config file.
 
-For Claude Code without the plugin: `claude mcp add --scope user gw2-data -- node /absolute/path/to/gw2-ai/packages/mcp-data/dist/index.js`, and the same for the other two. To use the skills without the plugin, copy the folders under `skills/` into `~/.claude/skills/`.
+For Claude Code without the plugin: `claude mcp add --scope user gw2-data -- npx -y @gw2-ai/mcp-data`, and the same for the other two. To use the skills without the plugin, copy the folders under `skills/` into `~/.claude/skills/`.
+
+### Using the client library
+
+`@gw2-ai/client` is the typed API client the servers are built on, usable on its own in Node or the browser. See [packages/client/README.md](packages/client/README.md).
 
 ### Report site
 

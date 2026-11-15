@@ -1,10 +1,42 @@
 {
   "name": "@gw2-ai/mcp-data",
   "version": "0.1.0",
-  "type": "module",
+  "description": "MCP server for public Guild Wars 2 data: item search, trading post prices and flip math, recipe trees with craft-vs-buy costs, gem exchange, achievements.",
+  "keywords": [
+    "guild-wars-2",
+    "gw2",
+    "mcp",
+    "model-context-protocol",
+    "mcp-server",
+    "trading-post"
+  ],
   "license": "MIT",
-  "bin": { "gw2-mcp-data": "./dist/index.js" },
-  "files": ["dist"],
+  "author": "Christopher Davenport",
+  "homepage": "https://github.com/ChristopherDavenport/gw2-ai/tree/main/packages/mcp-data#readme",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/ChristopherDavenport/gw2-ai.git",
+    "directory": "packages/mcp-data"
+  },
+  "bugs": {
+    "url": "https://github.com/ChristopherDavenport/gw2-ai/issues"
+  },
+  "type": "module",
+  "bin": {
+    "gw2-mcp-data": "./dist/index.js"
+  },
+  "files": [
+    "dist",
+    "!dist/**/*.test.*",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc -p tsconfig.json --noEmit",

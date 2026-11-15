@@ -1,0 +1,60 @@
+name: Release
+
+# Publishes @gw2-ai/client, core and the three MCP servers to npm when a
+# version tag (v0.1.0, ...) is pushed. Every package's version must match the
+# tag, and .claude-plugin/plugin.json must pin the same version for the
+# servers; the check step enforces both.
+#
+# Needs the NPM_TOKEN repository secret (an npm automation token with publish
+# rights on the @gw2-ai scope).
+#
+# npm provenance (--provenance) only works from public repositories. Add it
+# to the publish step, with `id-token: write`, once the repository is public.
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: pnpm/action-setup@v6
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: https://registry.npmjs.org
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: Check versions match the tag
+        run: |
+          version="${GITHUB_REF_NAME#v}"
+          status=0
+          for pkg in client core mcp-account mcp-data mcp-wiki; do
+            v=$(node -p "require('./packages/$pkg/package.json').version")
+            if [ "$v" != "$version" ]; then echo "packages/$pkg is $v, tag is $version"; status=1; fi
+          done
+          for server in mcp-account mcp-data mcp-wiki; do
+            grep -q "@gw2-ai/$server@$version\"" .claude-plugin/plugin.json \
+              || { echo "plugin.json does not pin @gw2-ai/$server@$version"; status=1; }
+          done
+          exit $status
+
+      - run: pnpm -r build
+      - run: pnpm -r typecheck
+      - run: pnpm -r test
+
+      # pnpm rewrites workspace:* dependencies to the published versions and
+      # publishes in dependency order (client, core, then the servers).
+      - name: Publish
+        run: pnpm -r --filter "./packages/*" publish --access public --no-git-checks
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

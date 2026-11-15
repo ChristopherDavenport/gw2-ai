@@ -10,7 +10,14 @@
   "homepage": "https://github.com/ChristopherDavenport/gw2-ai",
   "repository": "https://github.com/ChristopherDavenport/gw2-ai",
   "license": "MIT",
-  "keywords": ["guild-wars-2", "gw2", "mcp", "trading-post", "crafting", "legendary"],
+  "keywords": [
+    "guild-wars-2",
+    "gw2",
+    "mcp",
+    "trading-post",
+    "crafting",
+    "legendary"
+  ],
   "userConfig": {
     "api_key": {
       "type": "string",
@@ -21,19 +28,28 @@
   },
   "mcpServers": {
     "gw2-account": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-account/dist/index.js"],
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gw2-ai/mcp-account@0.1.0"
+      ],
       "env": {
         "GW2_API_KEY": "${GW2_API_KEY:-${user_config.api_key}}"
       }
     },
     "gw2-data": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-data/dist/index.js"]
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gw2-ai/mcp-data@0.1.0"
+      ]
     },
     "gw2-wiki": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/packages/mcp-wiki/dist/index.js"]
+      "command": "npx",
+      "args": [
+        "-y",
+        "@gw2-ai/mcp-wiki@0.1.0"
+      ]
     }
   }
 }
