@@ -2,30 +2,34 @@ import {
   ALL_PERMISSIONS,
   Gw2ApiError,
   PERMISSION_HELP,
+  missingPermissions,
+  type Character,
+  type CharacterBuild,
+  type CharacterEquipmentItem,
+  type Gw2Client,
+  type Item,
+  type Permission,
+  type TokenInfo,
+} from '@gw2-ai/client';
+import {
+  ACCOUNT,
   SECTIONS,
-  TTL,
+  TOKEN_TTL,
   buildRecipeTree,
-  catalog,
   collectHoldings,
   createContext,
   fmt,
-  missingPermissions,
+  infixUpgrade,
   nameOf,
   renderRecipeTree,
-  tokenInfo,
-  type AccountMaterial,
-  type Character,
-  type EquipmentSlot,
-  type Gw2Client,
-  type Item,
-  type LegendaryArmoryEntry,
-  type Permission,
 } from '@gw2-ai/core';
 import { accountPath, checkParams, compactJson } from './paths.js';
 
 const { day, hours, num, table, text } = fmt;
 
-type Named = { id: number; name: string };
+function tokenInfo(client: Gw2Client): Promise<TokenInfo> {
+  return client.get('/v2/tokeninfo', { ttlMs: TOKEN_TTL });
+}
 
 /** What each tool needs, for gw2_key_info and permission errors. */
 export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional: Permission[]; note: string }> = {
@@ -40,7 +44,7 @@ async function requirePermissions(client: Gw2Client, tool: string): Promise<Perm
   const info = await tokenInfo(client);
   const spec = TOOL_PERMISSIONS[tool];
   if (spec) {
-    const missing = missingPermissions(info, spec.required);
+    const missing = missingPermissions(info.permissions, spec.required);
     if (missing.length) {
       throw new MissingPermissionError(
         `${tool} needs the \`${missing.join('`, `')}\` permission, which the API key "${info.name}" lacks. ` +
@@ -58,12 +62,12 @@ export async function keyInfo(client: Gw2Client): Promise<string> {
   const have = new Set(info.permissions);
   const permRows = ALL_PERMISSIONS.map((p) => [p, have.has(p) ? 'yes' : 'no', PERMISSION_HELP[p]]);
   const sectionRows = SECTIONS.map((s) => {
-    const missing = missingPermissions(info, s.permissions);
+    const missing = missingPermissions(info.permissions, s.permissions);
     return [s.id, missing.length ? `skipped (needs ${missing.join(', ')})` : 'available', s.summary];
   });
   const toolRows = Object.entries(TOOL_PERMISSIONS).map(([tool, spec]) => {
-    const missing = missingPermissions(info, spec.required);
-    const missingOpt = missingPermissions(info, spec.optional);
+    const missing = missingPermissions(info.permissions, spec.required);
+    const missingOpt = missingPermissions(info.permissions, spec.optional);
     const status = missing.length
       ? `unavailable (needs ${missing.join(', ')})`
       : missingOpt.length
@@ -74,7 +78,7 @@ export async function keyInfo(client: Gw2Client): Promise<string> {
   const lines = [
     `# API key "${text(info.name)}"`,
     '',
-    `- **Type:** ${info.type ?? 'APIKey'}${info.expires_at ? ` · **Expires:** ${info.expires_at}` : ''}`,
+    `- **Type:** ${info.type}${info.expires_at ? ` · **Expires:** ${info.expires_at}` : ''}`,
     `- **Permissions:** ${info.permissions.join(', ') || 'none'}`,
     '',
     '## Permissions',
@@ -101,9 +105,9 @@ export async function findItem(client: Gw2Client, query: string | undefined, ite
   const ctx = createContext(client, { valuation: false });
   const [held, mats, armory, chars] = await Promise.all([
     collectHoldings(ctx),
-    ctx.account<AccountMaterial[]>('/v2/account/materials').catch(() => undefined),
-    perms.has('unlocks') ? ctx.account<LegendaryArmoryEntry[]>('/v2/account/legendaryarmory').catch(() => undefined) : undefined,
-    perms.has('characters') ? ctx.account<Character[]>('/v2/characters', { ids: 'all' }).catch(() => undefined) : undefined,
+    client.get('/v2/account/materials', ACCOUNT).catch(() => undefined),
+    perms.has('unlocks') ? client.get('/v2/account/legendaryarmory', ACCOUNT).catch(() => undefined) : undefined,
+    perms.has('characters') ? client.all('/v2/characters', ACCOUNT).catch(() => undefined) : undefined,
   ]);
 
   const where = new Map<number, Map<string, number>>();
@@ -142,9 +146,9 @@ export async function findItem(client: Gw2Client, query: string | undefined, ite
   let defs: Map<number, Item>;
   if (itemId !== undefined) {
     ids = [itemId];
-    defs = await catalog.items(client, ids);
+    defs = await client.many('/v2/items', ids);
   } else {
-    defs = await catalog.items(client, where.keys());
+    defs = await client.many('/v2/items', where.keys());
     const q = (query ?? '').toLowerCase();
     ids = [...where.keys()].filter((id) => defs.get(id)?.name.toLowerCase().includes(q));
     ids.sort((a, b) => nameOf(defs, a).localeCompare(nameOf(defs, b)));
@@ -182,10 +186,10 @@ export async function character(client: Gw2Client, name: string): Promise<string
   const perms = new Set(await requirePermissions(client, 'gw2_character'));
   let ch: Character;
   try {
-    ch = await client.get<Character>(`/v2/characters/${encodeURIComponent(name.trim())}`, { ttlMs: TTL.account });
+    ch = await client.get('/v2/characters/:id', { path: { id: name.trim() }, ...ACCOUNT });
   } catch (err) {
     if (err instanceof Gw2ApiError && err.status === 404) {
-      const names = await client.get<string[]>('/v2/characters', { ttlMs: TTL.account }).catch(() => []);
+      const names = await client.ids('/v2/characters', ACCOUNT).catch(() => []);
       return `No character named "${text(name)}" on this account. Characters: ${names.map(text).join(', ') || '(none visible)'}. Names are case-sensitive.`;
     }
     throw err;
@@ -198,8 +202,8 @@ export async function character(client: Gw2Client, name: string): Promise<string
 
   // Core info.
   const [guild, title] = await Promise.all([
-    ch.guild ? client.get<{ name: string; tag: string }>(`/v2/guild/${ch.guild}`, { auth: false }).catch(() => undefined) : undefined,
-    ch.title ? client.getMany<Named>('/v2/titles', [ch.title]).then((m) => m.get(ch.title!)).catch(() => undefined) : undefined,
+    ch.guild ? client.get('/v2/guild/:id', { path: { id: ch.guild } }).catch(() => undefined) : undefined,
+    ch.title ? client.one('/v2/titles', ch.title).catch(() => undefined) : undefined,
   ]);
   out.push(
     `- **Profession:** ${ch.profession} · **Level:** ${ch.level} · **Race:** ${ch.race} (${ch.gender})`,
@@ -227,7 +231,7 @@ export async function character(client: Gw2Client, name: string): Promise<string
   return out.join('\n');
 }
 
-async function renderBuild(client: Gw2Client, build: NonNullable<Character['build_tabs']>[number]['build'], tab: number): Promise<string[]> {
+async function renderBuild(client: Gw2Client, build: CharacterBuild, tab: number): Promise<string[]> {
   const specIds = build.specializations.map((s) => s.id).filter((x): x is number => !!x);
   const traitIds = build.specializations.flatMap((s) => s.traits).filter((x): x is number => !!x);
   const sk = build.skills;
@@ -236,14 +240,14 @@ async function renderBuild(client: Gw2Client, build: NonNullable<Character['buil
   const petIds = (build.pets?.terrestrial ?? []).filter((x): x is number => !!x);
 
   const [specs, traits, legends, pets] = await Promise.all([
-    client.getMany<Named & { elite: boolean }>('/v2/specializations', specIds),
-    client.getMany<Named>('/v2/traits', traitIds),
-    legendIds.length ? client.getMany<{ id: string; swap: number }>('/v2/legends', legendIds) : new Map<string, { id: string; swap: number }>(),
-    petIds.length ? client.getMany<Named>('/v2/pets', petIds) : new Map<number, Named>(),
+    client.many('/v2/specializations', specIds),
+    client.many('/v2/traits', traitIds),
+    client.many('/v2/legends', legendIds),
+    client.many('/v2/pets', petIds),
   ]);
   const legendSkillIds = [...legends.values()].map((l) => l.swap).filter(Boolean);
-  const skills = await client.getMany<Named>('/v2/skills', [...skillIds, ...legendSkillIds]);
-  const skillName = (id: number | null) => (id ? nameOf(skills, id) : '—');
+  const skills = await client.many('/v2/skills', [...skillIds, ...legendSkillIds]);
+  const skillName = (id: number | null | undefined) => (id ? nameOf(skills, id) : '—');
 
   const lines = [`## Active build (tab ${tab}${build.name ? `: ${text(build.name)}` : ''})`, ''];
   const rows = build.specializations
@@ -269,20 +273,24 @@ async function renderBuild(client: Gw2Client, build: NonNullable<Character['buil
   return lines;
 }
 
-async function renderEquipment(client: Gw2Client, equipped: EquipmentSlot[], tab: number | undefined): Promise<string[]> {
+async function renderEquipment(client: Gw2Client, equipped: CharacterEquipmentItem[], tab: number | undefined): Promise<string[]> {
   const upgradeIds = equipped.flatMap((e) => [...(e.upgrades ?? []), ...(e.infusions ?? [])]);
-  const items = await catalog.items(client, [...equipped.map((e) => e.id), ...upgradeIds]);
+  const items = await client.many('/v2/items', [...equipped.map((e) => e.id), ...upgradeIds]);
+  const statIdOf = (e: CharacterEquipmentItem): number | undefined => {
+    const item = items.get(e.id);
+    return e.stats?.id ?? (item ? infixUpgrade(item)?.id : undefined);
+  };
   const statIds = new Set<number>();
   for (const e of equipped) {
-    const id = e.stats?.id ?? ((items.get(e.id)?.details?.infix_upgrade as { id?: number } | undefined)?.id);
+    const id = statIdOf(e);
     if (id) statIds.add(id);
   }
-  const stats = await client.getMany<Named>('/v2/itemstats', statIds);
+  const stats = await client.many('/v2/itemstats', statIds);
   const rows = [...equipped]
     .sort((a, b) => slotRank(a.slot) - slotRank(b.slot))
     .map((e) => {
       const item = items.get(e.id);
-      const statId = e.stats?.id ?? ((item?.details?.infix_upgrade as { id?: number } | undefined)?.id);
+      const statId = statIdOf(e);
       const upgrades = (e.upgrades ?? []).map((u) => nameOf(items, u));
       const infusions = (e.infusions ?? []).map((u) => nameOf(items, u));
       const extras = [...upgrades, ...(infusions.length ? [`infusions: ${infusions.join(', ')}`] : [])].join('; ');
@@ -298,7 +306,7 @@ async function renderEquipment(client: Gw2Client, equipped: EquipmentSlot[], tab
 async function renderBags(client: Gw2Client, ch: Character): Promise<string[]> {
   const bags = (ch.bags ?? []).filter((b) => b !== null);
   const contents = bags.flatMap((b) => b.inventory.filter((s) => s !== null));
-  const defs = await catalog.items(client, [...bags.map((b) => b.id), ...contents.map((s) => s.id)]);
+  const defs = await client.many('/v2/items', [...bags.map((b) => b.id), ...contents.map((s) => s.id)]);
   const rows = bags.map((b) => {
     const used = b.inventory.filter((s) => s !== null).length;
     return [nameOf(defs, b.id), b.id, b.size, used, b.size - used];
@@ -330,7 +338,7 @@ export async function shoppingList(client: Gw2Client, itemId: number, quantity: 
   const ctx = createContext(client, { valuation: false });
   const [held, mats] = await Promise.all([
     collectHoldings(ctx),
-    ctx.account<AccountMaterial[]>('/v2/account/materials').catch(() => [] as AccountMaterial[]),
+    client.get('/v2/account/materials', ACCOUNT).catch(() => []),
   ]);
   const have = new Map<number, number>();
   for (const h of held.holdings.values()) have.set(h.id, (have.get(h.id) ?? 0) + h.count);
@@ -358,7 +366,7 @@ export async function accountGet(
   maxChars: number,
 ): Promise<string> {
   const clean = accountPath(path);
-  const body = await client.get(clean, { params: checkParams(params), auth: true, ttlMs: 30_000 });
+  const body = await client.raw(clean, { query: checkParams(params), auth: true, ttlMs: 30_000 });
   const json = compactJson(body);
   const text = `GET ${clean}\n\n\`\`\`json\n${json}\n\`\`\``;
   if (text.length <= maxChars) return text;

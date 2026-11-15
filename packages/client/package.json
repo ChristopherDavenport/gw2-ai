@@ -1,0 +1,25 @@
+{
+  "name": "@gw2-ai/client",
+  "version": "0.1.0",
+  "description": "Fully typed Guild Wars 2 API client: every /v2 route, automatic auth, batching, caching and rate limiting. No dependencies; runs in Node and browsers.",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "sideEffects": false,
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.test.json --noEmit",
+    "test": "vitest run",
+    "verify:samples": "node ../../scripts/verify-samples.mjs"
+  }
+}

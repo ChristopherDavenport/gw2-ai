@@ -1,7 +1,7 @@
 import { chmod, mkdir, readFile, rename, stat, unlink, writeFile } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { looksLikeApiKey } from '@gw2-ai/core';
+import { looksLikeApiKey } from '@gw2-ai/client';
 
 export const KEY_ENV = 'GW2_API_KEY';
 export const APPLICATIONS_URL = 'https://account.arena.net/applications';

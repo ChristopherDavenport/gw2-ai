@@ -1,7 +1,7 @@
-import { catalog, nameOf } from '../catalog.js';
+import type { CommerceCompletedTransaction } from '@gw2-ai/client';
+import { nameOf } from '../catalog.js';
 import { coins, day, num, table } from '../format.js';
-import type { Delivery, Transaction } from '../types.js';
-import type { ReportSection } from './context.js';
+import { ACCOUNT, type ReportSection } from './context.js';
 
 export const tradingPost: ReportSection = {
   id: 'trading-post',
@@ -10,19 +10,19 @@ export const tradingPost: ReportSection = {
   permissions: ['account', 'tradingpost'],
   async render(ctx) {
     const [delivery, buys, sells, bought, sold] = await Promise.all([
-      ctx.account<Delivery>('/v2/commerce/delivery'),
-      ctx.account<Transaction[]>('/v2/commerce/transactions/current/buys'),
-      ctx.account<Transaction[]>('/v2/commerce/transactions/current/sells'),
-      ctx.account<Transaction[]>('/v2/commerce/transactions/history/buys'),
-      ctx.account<Transaction[]>('/v2/commerce/transactions/history/sells'),
+      ctx.client.get('/v2/commerce/delivery', ACCOUNT),
+      ctx.client.get('/v2/commerce/transactions/current/buys', ACCOUNT),
+      ctx.client.get('/v2/commerce/transactions/current/sells', ACCOUNT),
+      ctx.client.get('/v2/commerce/transactions/history/buys', ACCOUNT),
+      ctx.client.get('/v2/commerce/transactions/history/sells', ACCOUNT),
     ]);
     const ids = new Set<number>([
       ...delivery.items.map((i) => i.id),
       ...[...buys, ...sells, ...bought, ...sold].map((t) => t.item_id),
     ]);
     const [defs, prices] = await Promise.all([
-      catalog.items(ctx.client, ids),
-      catalog.prices(ctx.client, [...buys, ...sells].map((t) => t.item_id)),
+      ctx.client.many('/v2/items', ids),
+      ctx.client.many('/v2/commerce/prices', [...buys, ...sells].map((t) => t.item_id)),
     ]);
 
     const deliveryRows = delivery.items.map((i) => [nameOf(defs, i.id), num(i.count), i.id]);
@@ -36,7 +36,7 @@ export const tradingPost: ReportSection = {
       const status = best === undefined ? '' : best < t.price ? `undercut (lowest ${coins(best)})` : 'lowest listing';
       return [nameOf(defs, t.item_id), num(t.quantity), coins(t.price), status, day(t.created), t.item_id];
     });
-    const history = (list: Transaction[]) =>
+    const history = (list: CommerceCompletedTransaction[]) =>
       list
         .slice(0, 25)
         .map((t) => [nameOf(defs, t.item_id), num(t.quantity), coins(t.price), day(t.purchased), t.item_id]);

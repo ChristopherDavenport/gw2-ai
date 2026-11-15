@@ -1,14 +1,14 @@
 /**
  * Persistent CacheStore for public, unauthenticated API data (item, recipe,
  * currency definitions, prices). Authenticated responses, whose cache keys
- * the core client prefixes with `auth:`, stay in memory only and vanish
+ * @gw2-ai/client prefixes with `auth:`, stay in memory only and vanish
  * with the page.
  *
  * The whole persisted cache is read into memory on first use (one getAll),
  * because the client looks ids up one at a time; writes are batched into a
  * single transaction per tick.
  */
-import { MemoryCache, type CacheStore } from '@gw2-ai/core';
+import { MemoryCache, type CacheStore } from '@gw2-ai/client';
 import { withStore } from './idb.js';
 
 export const CACHE_DB = 'gw2-ai-cache';

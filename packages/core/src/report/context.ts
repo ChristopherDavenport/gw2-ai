@@ -1,6 +1,4 @@
-import { TTL } from '../cache.js';
-import type { Gw2Client } from '../client.js';
-import type { Permission } from '../types.js';
+import { TTL, type Gw2Client, type Permission } from '@gw2-ai/client';
 
 export interface ReportOptions {
   /** Price items at trading post buy-order prices. Costs extra requests. */
@@ -12,9 +10,14 @@ export interface ReportOptions {
 export interface ReportContext {
   client: Gw2Client;
   options: Required<ReportOptions>;
-  /** Fetch an authenticated endpoint once per report, shared across sections. */
-  account<T>(path: string, params?: Record<string, string | number>): Promise<T>;
 }
+
+/**
+ * Call options for authenticated routes in a report. The client does not
+ * cache authenticated responses by default; a short TTL lets sections that
+ * read the same route (e.g. /v2/characters) share one request.
+ */
+export const ACCOUNT = { ttlMs: TTL.account };
 
 export interface ReportSection {
   id: string;
@@ -26,18 +29,8 @@ export interface ReportSection {
 }
 
 export function createContext(client: Gw2Client, options: ReportOptions = {}): ReportContext {
-  const memo = new Map<string, Promise<unknown>>();
   return {
     client,
     options: { valuation: options.valuation ?? true, maxRows: options.maxRows ?? 200 },
-    account<T>(path: string, params?: Record<string, string | number>): Promise<T> {
-      const key = `${path}?${JSON.stringify(params ?? {})}`;
-      let p = memo.get(key);
-      if (!p) {
-        p = client.get<T>(path, { auth: true, ttlMs: TTL.account, ...(params ? { params } : {}) });
-        memo.set(key, p);
-      }
-      return p as Promise<T>;
-    },
   };
 }

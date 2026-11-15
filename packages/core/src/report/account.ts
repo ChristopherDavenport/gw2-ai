@@ -1,7 +1,6 @@
-import { catalog, nameOf } from '../catalog.js';
+import { byId, nameOf } from '../catalog.js';
 import { coins, day, hours, num, table, text } from '../format.js';
-import type { Account, Character, IdValue, MasteryPoints } from '../types.js';
-import type { ReportContext, ReportSection } from './context.js';
+import { ACCOUNT, type ReportContext, type ReportSection } from './context.js';
 
 const COIN_ID = 1;
 
@@ -11,11 +10,11 @@ export const overview: ReportSection = {
   summary: 'Account name, age, expansions owned, guilds, WvW team, fractal level, mastery points.',
   permissions: ['account'],
   async render(ctx: ReportContext) {
-    const a = await ctx.account<Account>('/v2/account');
+    const a = await ctx.client.get('/v2/account', ACCOUNT);
     const guilds = await Promise.all(
       a.guilds.map(async (id) => {
         try {
-          const g = await ctx.client.get<{ name: string; tag: string }>(`/v2/guild/${id}`, { auth: false });
+          const g = await ctx.client.get('/v2/guild/:id', { path: { id } });
           const leader = a.guild_leader?.includes(id) ? ' (leader)' : '';
           return `${text(g.name)} \\[${text(g.tag)}\\]${leader} \`${id}\``;
         } catch {
@@ -30,7 +29,7 @@ export const overview: ReportSection = {
       `- **Access:** ${a.access.join(', ')}`,
       `- **Commander tag:** ${a.commander ? 'yes' : 'no'}`,
       `- **Fractal level:** ${a.fractal_level ?? '— (needs progression)'}`,
-      `- **WvW:** rank ${a.wvw?.rank ?? '—'}, team ${a.wvw?.team_id ?? '—'}`,
+      `- **WvW:** rank ${a.wvw.rank ?? '—'}, ${a.wvw.team_id ? `team ${a.wvw.team_id}` : 'no team'}`,
       `- **Guilds:** ${guilds.length ? guilds.join('; ') : 'none'}`,
     ];
     if (a.daily_ap !== undefined) {
@@ -39,8 +38,8 @@ export const overview: ReportSection = {
 
     // Progression extras are optional: the key may not have the permission.
     const [mastery, luck] = await Promise.allSettled([
-      ctx.account<MasteryPoints>('/v2/account/mastery/points'),
-      ctx.account<{ id: string; value: number }[]>('/v2/account/luck'),
+      ctx.client.get('/v2/account/mastery/points', ACCOUNT),
+      ctx.client.get('/v2/account/luck', ACCOUNT),
     ]);
     if (mastery.status === 'fulfilled') {
       const rows = mastery.value.totals.map((t) => [t.region, t.earned, t.spent, t.earned - t.spent]);
@@ -61,8 +60,8 @@ export const wallet: ReportSection = {
   permissions: ['wallet'],
   async render(ctx) {
     const [entries, currencies] = await Promise.all([
-      ctx.account<IdValue[]>('/v2/account/wallet'),
-      catalog.currencies(ctx.client),
+      ctx.client.get('/v2/account/wallet', ACCOUNT),
+      ctx.client.all('/v2/currencies').then(byId),
     ]);
     const rows = entries
       .filter((e) => e.value > 0)
@@ -82,18 +81,15 @@ export const characters: ReportSection = {
   summary: 'Each character: profession, active elite spec, level, playtime, crafting disciplines.',
   permissions: ['characters'],
   async render(ctx) {
-    const chars = await ctx.account<Character[]>('/v2/characters', { ids: 'all' });
+    const chars = await ctx.client.all('/v2/characters', ACCOUNT);
     const specIds = new Set<number>();
     for (const ch of chars) {
       const active = ch.build_tabs?.find((t) => t.is_active);
       for (const s of active?.build.specializations ?? []) if (s.id) specIds.add(s.id);
     }
-    const specs = await ctx.client.getMany<{ id: number; name: string; elite: boolean }>(
-      '/v2/specializations',
-      specIds,
-    );
+    const specs = await ctx.client.many('/v2/specializations', specIds);
 
-    const rows = chars
+    const rows = [...chars]
       .sort((a, b) => b.age - a.age)
       .map((ch) => {
         const active = ch.build_tabs?.find((t) => t.is_active);

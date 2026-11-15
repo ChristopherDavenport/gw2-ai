@@ -1,26 +1,24 @@
 import {
-  TTL,
-  buildRecipeTree,
-  catalog,
-  fmt,
-  nameOf,
+  Gw2ApiError,
+  MAX_IDS_PER_REQUEST,
   pageUrl,
-  renderRecipeTree,
-  searchItemsByName,
   type Achievement,
-  type ExchangeRate,
+  type CommerceListingEntry,
+  type CommercePrice,
   type Gw2Client,
   type Item,
-  type Listing,
-  type Price,
+  type ItemFlag,
+  type ItemStat,
+  type Mini,
+  type Skin,
+  type Title,
   type WikiClient,
-} from '@gw2-ai/core';
+} from '@gw2-ai/client';
+import { buildRecipeTree, fmt, infixUpgrade, nameOf, renderRecipeTree, searchItemsByName } from '@gw2-ai/core';
 import { breakEvenPrice, flipProfit } from './fees.js';
 import { checkParams, compactJson, normalizeApiPath, truncate } from './util.js';
 
 const { coins, num, table, plain } = fmt;
-
-type Named = { id: number; name: string };
 
 /** API attribute keys to the names players know. */
 const ATTRIBUTE_NAMES: Record<string, string> = {
@@ -38,30 +36,39 @@ export function attributeName(key: string): string {
 
 // ---------------------------------------------------------------- items
 
-interface InfixUpgrade {
-  id?: number;
-  attributes?: { attribute: string; modifier: number }[];
-  buff?: { skill_id?: number; description?: string };
+/** Equipment details (armor, back, trinket, weapon): stat choices, upgrade and infusion slots. */
+function equipment(item: Item) {
+  switch (item.type) {
+    case 'Armor':
+    case 'Back':
+    case 'Trinket':
+    case 'Weapon':
+      return item.details;
+    default:
+      return undefined;
+  }
+}
+
+/** Rune or sigil ids slotted into an item. */
+function suffixIds(item: Item): number[] {
+  const d = equipment(item);
+  return [d?.suffix_item_id, d?.secondary_suffix_item_id].filter((v): v is number => v !== undefined && v > 0);
 }
 
 export async function itemDetails(client: Gw2Client, ids: number[]): Promise<string> {
-  const items = await catalog.items(client, ids);
+  const items = await client.many('/v2/items', ids);
   const statIds = new Set<number>();
   const upgradeIds = new Set<number>();
   for (const item of items.values()) {
-    const d = item.details ?? {};
-    const infix = d.infix_upgrade as InfixUpgrade | undefined;
-    if (infix?.id) statIds.add(infix.id);
-    for (const s of (d.stat_choices as number[] | undefined) ?? []) statIds.add(s);
-    for (const k of ['suffix_item_id', 'secondary_suffix_item_id']) {
-      const v = Number(d[k]);
-      if (v > 0) upgradeIds.add(v);
-    }
+    const infixId = infixUpgrade(item)?.id;
+    if (infixId) statIds.add(infixId);
+    for (const s of equipment(item)?.stat_choices ?? []) statIds.add(s);
+    for (const v of suffixIds(item)) upgradeIds.add(v);
   }
   const [prices, stats, upgrades] = await Promise.all([
-    catalog.prices(client, items.keys()),
-    client.getMany<Named>('/v2/itemstats', statIds),
-    catalog.items(client, upgradeIds),
+    client.many('/v2/commerce/prices', items.keys()),
+    client.many('/v2/itemstats', statIds),
+    client.many('/v2/items', upgradeIds),
   ]);
 
   const blocks = ids.map((id) => {
@@ -72,9 +79,8 @@ export async function itemDetails(client: Gw2Client, ids: number[]): Promise<str
   return blocks.join('\n\n');
 }
 
-function renderItem(item: Item, price: Price | undefined, stats: Map<number, Named>, upgrades: Map<number, Item>): string {
-  const d = item.details ?? {};
-  const subtype = typeof d.type === 'string' ? ` / ${d.type}` : '';
+function renderItem(item: Item, price: CommercePrice | undefined, stats: Map<number, ItemStat>, upgrades: Map<number, Item>): string {
+  const subtype = 'details' in item && 'type' in item.details ? ` / ${item.details.type}` : '';
   const lines = [
     `## ${item.name} (${item.id})`,
     '',
@@ -83,7 +89,7 @@ function renderItem(item: Item, price: Price | undefined, stats: Map<number, Nam
   if (item.description) lines.push(`- **Description:** ${plain(item.description)}`);
   if (item.flags.length) lines.push(`- **Flags:** ${item.flags.join(', ')}${bindingNote(item.flags)}`);
   if (item.restrictions.length) lines.push(`- **Restrictions:** ${item.restrictions.join(', ')}`);
-  lines.push(...detailLines(d, stats, upgrades));
+  lines.push(...detailLines(item, stats, upgrades));
   lines.push(`- **Vendor value:** ${coins(item.vendor_value)} · **Chat link:** \`${item.chat_link}\``);
   if (price) {
     const b = price.buys;
@@ -104,7 +110,7 @@ function renderItem(item: Item, price: Price | undefined, stats: Map<number, Nam
   return lines.join('\n');
 }
 
-function bindingNote(flags: string[]): string {
+function bindingNote(flags: ItemFlag[]): string {
   if (flags.includes('AccountBound')) return ' (account bound: cannot be traded)';
   if (flags.includes('SoulbindOnAcquire')) return ' (soulbound: cannot be traded)';
   if (flags.includes('AccountBindOnUse') || flags.includes('SoulBindOnUse')) return ' (binds on use: tradable until used)';
@@ -127,32 +133,36 @@ const HANDLED_DETAILS = new Set([
   'icon',
 ]);
 
-function detailLines(d: Record<string, unknown>, stats: Map<number, Named>, upgrades: Map<number, Item>): string[] {
+function detailLines(item: Item, stats: Map<number, ItemStat>, upgrades: Map<number, Item>): string[] {
+  if (!('details' in item)) return [];
   const out: string[] = [];
-  if (typeof d.min_power === 'number') out.push(`- **Weapon strength:** ${d.min_power}–${d.max_power}`);
-  const infix = d.infix_upgrade as InfixUpgrade | undefined;
+  if (item.type === 'Weapon') out.push(`- **Weapon strength:** ${item.details.min_power}–${item.details.max_power}`);
+  const infix = infixUpgrade(item);
   if (infix) {
     const set = infix.id ? stats.get(infix.id)?.name : undefined;
-    const attrs = (infix.attributes ?? []).map((a) => `+${a.modifier} ${attributeName(a.attribute)}`).join(', ');
+    const attrs = infix.attributes.map((a) => `+${a.modifier} ${attributeName(a.attribute)}`).join(', ');
     const parts = [set ? `${set} (itemstats ${infix.id})` : infix.id ? `itemstats ${infix.id}` : '', attrs].filter(Boolean);
     if (parts.length) out.push(`- **Stats:** ${parts.join(': ')}`);
     if (infix.buff?.description) out.push(`- **Buff:** ${plain(infix.buff.description.replace(/\n/g, ', '))}`);
   }
-  const choices = d.stat_choices as number[] | undefined;
+  const gear = equipment(item);
+  const choices = gear?.stat_choices;
   if (choices?.length) {
     out.push(`- **Selectable stats (${choices.length}):** ${choices.map((s) => stats.get(s)?.name ?? `#${s}`).join(', ')}`);
   }
-  const slots = d.infusion_slots as { flags: string[] }[] | undefined;
+  const slots = gear?.infusion_slots;
   if (slots?.length) out.push(`- **Infusion slots:** ${slots.map((s) => s.flags.join('/') || 'any').join(', ')}`);
-  for (const k of ['suffix_item_id', 'secondary_suffix_item_id']) {
-    const v = Number(d[k]);
-    if (v > 0) out.push(`- **Upgrade:** ${upgrades.get(v)?.name ?? `#${v}`} (item ${v})`);
+  for (const v of suffixIds(item)) out.push(`- **Upgrade:** ${upgrades.get(v)?.name ?? `#${v}`} (item ${v})`);
+  if (item.type === 'UpgradeComponent' && item.details.bonuses?.length) {
+    out.push(`- **Bonuses:** ${item.details.bonuses.map((b, i) => `(${i + 1}) ${plain(b)}`).join('; ')}`);
   }
-  const bonuses = d.bonuses as string[] | undefined;
-  if (bonuses?.length) out.push(`- **Bonuses:** ${bonuses.map((b, i) => `(${i + 1}) ${plain(b)}`).join('; ')}`);
-  if (typeof d.description === 'string' && d.description) out.push(`- **Effect:** ${plain(d.description)}`);
-  if (typeof d.duration_ms === 'number') out.push(`- **Duration:** ${Math.round(d.duration_ms / 60_000)} min`);
-  const rest = Object.entries(d)
+  if (item.type === 'Consumable') {
+    const c = item.details;
+    if (c.description) out.push(`- **Effect:** ${plain(c.description)}`);
+    if (c.duration_ms !== undefined) out.push(`- **Duration:** ${Math.round(c.duration_ms / 60_000)} min`);
+  }
+  // Remaining detail fields (bag size, tool charges, unlock ids...) as plain key: value pairs.
+  const rest = Object.entries(item.details)
     .filter(([k, v]) => !HANDLED_DETAILS.has(k) && v !== null && v !== '' && !(Array.isArray(v) && v.length === 0))
     .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(', ') : typeof v === 'object' ? JSON.stringify(v) : String(v)}`);
   if (rest.length) out.push(`- **Details:** ${rest.join('; ')}`);
@@ -172,7 +182,10 @@ function titleCase(s: string): string {
 
 function gameIds(rows: Record<string, unknown>[]): number[] {
   const ids: number[] = [];
-  for (const r of rows) for (const v of (r['Has game id'] as unknown[] | undefined) ?? []) if (Number(v) > 0) ids.push(Number(v));
+  for (const r of rows) {
+    const values: unknown = r['Has game id'];
+    if (Array.isArray(values)) for (const v of values) if (Number(v) > 0) ids.push(Number(v));
+  }
   return ids;
 }
 
@@ -208,7 +221,7 @@ export async function itemSearch(
         source = 'wiki full-text search';
       }
     }
-    items = [...(await catalog.items(client, ids)).values()];
+    items = [...(await client.many('/v2/items', ids)).values()];
   }
 
   const q = query.toLowerCase().trim();
@@ -225,7 +238,7 @@ export async function itemSearch(
   if (shown.length === 0) {
     return `No items found for "${query}" (${source}). Try a shorter or differently spelled name, gw2_wiki_search, or exhaustive: true (slow full scan).`;
   }
-  const prices = await catalog.prices(client, shown.map((i) => i.id));
+  const prices = await client.many('/v2/commerce/prices', shown.map((i) => i.id));
   const rows = shown.map((i) => {
     const p = prices.get(i.id);
     return [i.name, i.id, i.type, i.rarity, i.level, p?.sells.unit_price ? coins(p.sells.unit_price) : p ? '—' : 'not tradable'];
@@ -237,7 +250,7 @@ export async function itemSearch(
 // ---------------------------------------------------------------- market
 
 export async function prices(client: Gw2Client, ids: number[]): Promise<string> {
-  const [px, items] = await Promise.all([catalog.prices(client, ids), catalog.items(client, ids)]);
+  const [px, items] = await Promise.all([client.many('/v2/commerce/prices', ids), client.many('/v2/items', ids)]);
   const rows = ids
     .filter((id) => px.has(id))
     .map((id) => {
@@ -273,11 +286,9 @@ export async function prices(client: Gw2Client, ids: number[]): Promise<string> 
 }
 
 export async function listings(client: Gw2Client, id: number, depth: number): Promise<string> {
-  const [book, items] = await Promise.all([
-    client.get<Listing>(`/v2/commerce/listings/${id}`, { ttlMs: TTL.market }),
-    catalog.items(client, [id]),
-  ]);
-  const side = (rows: Listing['buys']) => {
+  const [book, items] = await Promise.all([client.one('/v2/commerce/listings', id), client.many('/v2/items', [id])]);
+  if (!book) throw new Gw2ApiError(404, `/v2/commerce/listings/${id}`, 'no such id, or the item is not tradable');
+  const side = (rows: CommerceListingEntry[]) => {
     let cum = 0;
     return rows.slice(0, depth).map((r) => {
       cum += r.quantity;
@@ -286,7 +297,7 @@ export async function listings(client: Gw2Client, id: number, depth: number): Pr
   };
   const sells = [...book.sells].sort((a, b) => a.unit_price - b.unit_price);
   const buys = [...book.buys].sort((a, b) => b.unit_price - a.unit_price);
-  const total = (rows: Listing['buys']) => num(rows.reduce((s, r) => s + r.quantity, 0));
+  const total = (rows: CommerceListingEntry[]) => num(rows.reduce((s, r) => s + r.quantity, 0));
   const headers = ['Unit price', 'Quantity', 'Listings', 'Cumulative'];
   return [
     `# Order book: ${nameOf(items, id)} (${id})`,
@@ -305,8 +316,8 @@ export async function listings(client: Gw2Client, id: number, depth: number): Pr
 
 export async function gemExchange(client: Gw2Client, gems: number, copper: number): Promise<string> {
   const [sellGems, buyGems] = await Promise.all([
-    client.get<ExchangeRate>('/v2/commerce/exchange/gems', { params: { quantity: gems }, ttlMs: TTL.exchange }),
-    client.get<ExchangeRate>('/v2/commerce/exchange/coins', { params: { quantity: copper }, ttlMs: TTL.exchange }),
+    client.get('/v2/commerce/exchange/gems', { query: { quantity: gems } }),
+    client.get('/v2/commerce/exchange/coins', { query: { quantity: copper } }),
   ]);
   return [
     '# Gem exchange',
@@ -327,9 +338,9 @@ export async function recipeTree(client: Gw2Client, id: number, quantity: number
 }
 
 export async function recipesUsing(client: Gw2Client, id: number, limit: number): Promise<string> {
-  const recipeIds = await catalog.recipesUsing(client, id);
-  const [self, recipes] = await Promise.all([catalog.items(client, [id]), catalog.recipes(client, recipeIds)]);
-  const outputs = await catalog.items(client, [...recipes.values()].map((r) => r.output_item_id));
+  const recipeIds = await client.get('/v2/recipes/search', { query: { input: id } });
+  const [self, recipes] = await Promise.all([client.many('/v2/items', [id]), client.many('/v2/recipes', recipeIds)]);
+  const outputs = await client.many('/v2/items', [...recipes.values()].map((r) => r.output_item_id));
   const list = [...recipes.values()].sort(
     (a, b) => nameOf(outputs, a.output_item_id).localeCompare(nameOf(outputs, b.output_item_id)) || a.min_rating - b.min_rating,
   );
@@ -358,7 +369,7 @@ export async function recipesUsing(client: Gw2Client, id: number, limit: number)
 // ---------------------------------------------------------------- achievements
 
 export async function achievements(client: Gw2Client, ids: number[]): Promise<string> {
-  const achs = await catalog.achievements(client, ids);
+  const achs = await client.many('/v2/achievements', ids);
   const itemIds = new Set<number>();
   const skinIds = new Set<number>();
   const miniIds = new Set<number>();
@@ -366,11 +377,10 @@ export async function achievements(client: Gw2Client, ids: number[]): Promise<st
   const prereqIds = new Set<number>();
   for (const a of achs.values()) {
     for (const r of a.rewards ?? []) {
-      if (r.type === 'Item' && r.id) itemIds.add(r.id);
-      if (r.type === 'Title' && r.id) titleIds.add(r.id);
+      if (r.type === 'Item') itemIds.add(r.id);
+      if (r.type === 'Title') titleIds.add(r.id);
     }
     for (const b of a.bits ?? []) {
-      if (!b.id) continue;
       if (b.type === 'Item') itemIds.add(b.id);
       if (b.type === 'Skin') skinIds.add(b.id);
       if (b.type === 'Minipet') miniIds.add(b.id);
@@ -378,11 +388,11 @@ export async function achievements(client: Gw2Client, ids: number[]): Promise<st
     for (const p of a.prerequisites ?? []) prereqIds.add(p);
   }
   const [items, skins, minis, titles, prereqs] = await Promise.all([
-    catalog.items(client, itemIds),
-    client.getMany<Named>('/v2/skins', skinIds),
-    client.getMany<Named>('/v2/minis', miniIds),
-    client.getMany<Named>('/v2/titles', titleIds),
-    catalog.achievements(client, prereqIds),
+    client.many('/v2/items', itemIds),
+    client.many('/v2/skins', skinIds),
+    client.many('/v2/minis', miniIds),
+    client.many('/v2/titles', titleIds),
+    client.many('/v2/achievements', prereqIds),
   ]);
 
   return ids
@@ -397,11 +407,11 @@ export async function achievements(client: Gw2Client, ids: number[]): Promise<st
 function renderAchievement(
   a: Achievement,
   names: {
-    items: Map<number, Named>;
-    skins: Map<number, Named>;
-    minis: Map<number, Named>;
-    titles: Map<number, Named>;
-    prereqs: Map<number, Named>;
+    items: Map<number, Item>;
+    skins: Map<number, Skin>;
+    minis: Map<number, Mini>;
+    titles: Map<number, Title>;
+    prereqs: Map<number, Achievement>;
   },
 ): string {
   const lines = [`## ${a.name} (${a.id})`, ''];
@@ -418,15 +428,18 @@ function renderAchievement(
     const rewards = a.rewards.map((r) => {
       switch (r.type) {
         case 'Coins':
-          return coins(r.count ?? 0);
+          return coins(r.count);
         case 'Item':
-          return `${r.count ?? 1} × ${nameOf(names.items, r.id ?? 0)} (item ${r.id})`;
+          return `${r.count} × ${nameOf(names.items, r.id)} (item ${r.id})`;
         case 'Mastery':
-          return `${r.region ?? ''} mastery point`;
+          return `${r.region} mastery point`;
         case 'Title':
-          return `title "${nameOf(names.titles, r.id ?? 0)}" (${r.id})`;
-        default:
-          return `${r.type}${r.id ? ` ${r.id}` : ''}`;
+          return `title "${nameOf(names.titles, r.id)}" (${r.id})`;
+        default: {
+          // A reward type added to the API after these types were written.
+          const other: { type: string } = r;
+          return other.type;
+        }
       }
     });
     lines.push(`- **Rewards:** ${rewards.join('; ')}`);
@@ -435,16 +448,9 @@ function renderAchievement(
   if (bits.length) {
     const cap = 60;
     const rows = bits.slice(0, cap).map((b, i) => {
-      const id = b.id ?? 0;
-      const name =
-        b.type === 'Item'
-          ? nameOf(names.items, id)
-          : b.type === 'Skin'
-            ? nameOf(names.skins, id)
-            : b.type === 'Minipet'
-              ? nameOf(names.minis, id)
-              : '';
-      return [i, b.type, name || plain(b.text), b.id ?? '', name ? plain(b.text) : ''];
+      if (b.type === 'Text') return [i, b.type, plain(b.text), '', ''];
+      const map = b.type === 'Item' ? names.items : b.type === 'Skin' ? names.skins : names.minis;
+      return [i, b.type, nameOf(map, b.id), b.id, plain(b.text)];
     });
     lines.push('', `### Objectives (${bits.length})`, '', table(['Bit', 'Type', 'Name', 'Id', 'Hint'], rows));
     if (bits.length > cap) lines.push('', `_${bits.length - cap} more objectives not shown._`);
@@ -462,13 +468,25 @@ export async function apiGet(
   maxChars: number,
 ): Promise<string> {
   const clean = normalizeApiPath(path);
-  // Basic guild info is public even though the rest of /v2/guild/:id needs a key.
-  const auth = /^\/v2\/guild\/[^/]+$/.test(clean) ? { auth: false } : {};
+  // This server's client has no key, so raw() refuses authenticated routes
+  // and calls optional-auth ones such as /v2/guild/:id without a key.
   let body: unknown;
   if (ids?.length) {
-    body = [...(await client.getMany<{ id: number | string }>(clean, ids, auth)).values()];
+    const unique = [...new Set(ids)];
+    const chunks: (number | string)[][] = [];
+    for (let i = 0; i < unique.length; i += MAX_IDS_PER_REQUEST) chunks.push(unique.slice(i, i + MAX_IDS_PER_REQUEST));
+    const rows = await Promise.all(
+      chunks.map((chunk) =>
+        client.raw(clean, { query: { ids: chunk.join(',') } }).catch((err: unknown) => {
+          // The API answers 404 when every id in the request is unknown.
+          if (err instanceof Gw2ApiError && err.status === 404) return [];
+          throw err;
+        }),
+      ),
+    );
+    body = rows.flatMap((r) => (Array.isArray(r) ? r : [r]));
   } else {
-    body = await client.get(clean, { params: checkParams(params), ...auth });
+    body = await client.raw(clean, { query: checkParams(params) });
   }
   const json = compactJson(body);
   return truncate(

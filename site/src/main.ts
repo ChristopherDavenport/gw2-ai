@@ -3,16 +3,12 @@ import {
   Gw2ApiError,
   Gw2Client,
   PERMISSION_HELP,
-  SECTIONS,
   TTL,
-  buildReport,
   looksLikeApiKey,
   missingPermissions,
-  tokenInfo,
-  type Report,
-  type SectionResult,
   type TokenInfo,
-} from '@gw2-ai/core';
+} from '@gw2-ai/client';
+import { SECTIONS, TOKEN_TTL, buildReport, type Report, type SectionResult } from '@gw2-ai/core';
 import { IdbCache } from './cache-store.js';
 import { reportFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
@@ -102,6 +98,10 @@ async function checkKey(key: string): Promise<{ c: Gw2Client; info: TokenInfo }>
   return { c, info };
 }
 
+function tokenInfo(c: Gw2Client): Promise<TokenInfo> {
+  return c.get('/v2/tokeninfo', { ttlMs: TOKEN_TTL });
+}
+
 function showKey(info: TokenInfo | undefined, origin: string): void {
   keyForm.hidden = true;
   keySaved.hidden = false;
@@ -138,7 +138,7 @@ function renderPermissions(info: TokenInfo | undefined): void {
       ),
     );
   }
-  const uncovered = SECTIONS.filter((s) => missingPermissions(info, s.permissions).length);
+  const uncovered = SECTIONS.filter((s) => missingPermissions(info.permissions, s.permissions).length);
   permWarning.replaceChildren();
   permWarning.hidden = uncovered.length === 0;
   if (uncovered.length) {
@@ -148,7 +148,7 @@ function renderPermissions(info: TokenInfo | undefined): void {
         'ul',
         {},
         ...uncovered.map((s) =>
-          el('li', { text: `${s.title} (needs ${missingPermissions(info, s.permissions).join(', ')})` }),
+          el('li', { text: `${s.title} (needs ${missingPermissions(info.permissions, s.permissions).join(', ')})` }),
         ),
       ),
       el('p', { text: 'To include them, create a key with those permissions too.' }),
@@ -274,7 +274,7 @@ function renderSections(): void {
     box.type = 'checkbox';
     box.id = id;
     box.value = s.id;
-    const missing = token ? missingPermissions(token, s.permissions) : [];
+    const missing = token ? missingPermissions(token.permissions, s.permissions) : [];
     box.disabled = missing.length > 0;
     box.checked = !box.disabled && (previous.get(s.id) ?? true);
 
@@ -387,7 +387,7 @@ function progressBadge(status: SectionResult['status'] | 'pending'): HTMLSpanEle
 
 async function fetchAccountName(c: Gw2Client): Promise<string> {
   try {
-    const account = await c.get<{ name: string }>('/v2/account', { auth: true, ttlMs: TTL.account });
+    const account = await c.get('/v2/account', { ttlMs: TTL.account });
     return account.name;
   } catch {
     return 'account';

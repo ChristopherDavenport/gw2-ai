@@ -1,14 +1,7 @@
-import { catalog, nameOf } from '../catalog.js';
+import type { AccountMaterial, CommercePrice, InventorySlot, Item } from '@gw2-ai/client';
+import { byId, nameOf } from '../catalog.js';
 import { coins, num, table } from '../format.js';
-import type {
-  AccountMaterial,
-  Character,
-  Item,
-  ItemSlot,
-  LegendaryArmoryEntry,
-  Price,
-} from '../types.js';
-import type { ReportContext, ReportSection } from './context.js';
+import { ACCOUNT, type ReportContext, type ReportSection } from './context.js';
 
 interface Holding {
   id: number;
@@ -16,7 +9,7 @@ interface Holding {
   where: Map<string, number>;
 }
 
-function add(holdings: Map<number, Holding>, slot: ItemSlot | null, where: string): void {
+function add(holdings: Map<number, Holding>, slot: InventorySlot | null, where: string): void {
   if (!slot) return;
   let h = holdings.get(slot.id);
   if (!h) {
@@ -28,17 +21,17 @@ function add(holdings: Map<number, Holding>, slot: ItemSlot | null, where: strin
 }
 
 /** Copper value of `count` units at the instant-sell (highest buy order) price. */
-function value(prices: Map<number, Price>, id: number, count: number): number | undefined {
+function value(prices: Map<number, CommercePrice>, id: number, count: number): number | undefined {
   const p = prices.get(id);
   return p && p.buys.unit_price > 0 ? p.buys.unit_price * count : undefined;
 }
 
-async function pricesFor(ctx: ReportContext, items: Map<number, Item>): Promise<Map<number, Price>> {
+async function pricesFor(ctx: ReportContext, items: Map<number, Item>): Promise<Map<number, CommercePrice>> {
   if (!ctx.options.valuation) return new Map();
   const tradable = [...items.values()]
     .filter((i) => !i.flags.includes('AccountBound') && !i.flags.includes('SoulbindOnAcquire'))
     .map((i) => i.id);
-  return catalog.prices(ctx.client, tradable);
+  return ctx.client.many('/v2/commerce/prices', tradable);
 }
 
 /** Gather bank, shared inventory and (if allowed) character bags into one map. */
@@ -46,9 +39,9 @@ export async function collectHoldings(ctx: ReportContext): Promise<{ holdings: M
   const holdings = new Map<number, Holding>();
   const notes: string[] = [];
   const [bank, shared, chars] = await Promise.allSettled([
-    ctx.account<(ItemSlot | null)[]>('/v2/account/bank'),
-    ctx.account<(ItemSlot | null)[]>('/v2/account/inventory'),
-    ctx.account<Character[]>('/v2/characters', { ids: 'all' }),
+    ctx.client.get('/v2/account/bank', ACCOUNT),
+    ctx.client.get('/v2/account/inventory', ACCOUNT),
+    ctx.client.all('/v2/characters', ACCOUNT),
   ]);
   if (bank.status === 'fulfilled') for (const s of bank.value) add(holdings, s, 'Bank');
   else notes.push('bank unavailable');
@@ -70,7 +63,7 @@ export const items: ReportSection = {
   permissions: ['inventories'],
   async render(ctx) {
     const { holdings, notes } = await collectHoldings(ctx);
-    const defs = await catalog.items(ctx.client, holdings.keys());
+    const defs = await ctx.client.many('/v2/items', holdings.keys());
     const prices = await pricesFor(ctx, defs);
     const list = [...holdings.values()].map((h) => ({ h, v: value(prices, h.id, h.count) }));
     list.sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || b.h.count - a.h.count);
@@ -98,11 +91,11 @@ export const materials: ReportSection = {
   permissions: ['inventories'],
   async render(ctx) {
     const [mats, categories] = await Promise.all([
-      ctx.account<AccountMaterial[]>('/v2/account/materials'),
-      catalog.materialCategories(ctx.client),
+      ctx.client.get('/v2/account/materials', ACCOUNT),
+      ctx.client.all('/v2/materials').then(byId),
     ]);
     const held = mats.filter((m) => m.count > 0);
-    const defs = await catalog.items(ctx.client, held.map((m) => m.id));
+    const defs = await ctx.client.many('/v2/items', held.map((m) => m.id));
     const prices = await pricesFor(ctx, defs);
 
     const byCat = new Map<number, AccountMaterial[]>();
@@ -134,20 +127,53 @@ export const legendaryArmory: ReportSection = {
   summary: 'Legendary items unlocked in the armory and how many copies are stored.',
   permissions: ['account', 'inventories', 'unlocks'],
   async render(ctx) {
-    const entries = await ctx.account<LegendaryArmoryEntry[]>('/v2/account/legendaryarmory');
-    const defs = await catalog.items(ctx.client, entries.map((e) => e.id));
+    const entries = await ctx.client.get('/v2/account/legendaryarmory', ACCOUNT);
+    const defs = await ctx.client.many('/v2/items', entries.map((e) => e.id));
     const rows = entries
       .map((e) => {
         const d = defs.get(e.id);
-        const sub = (d?.details?.type as string | undefined) ?? '';
-        return [d?.name ?? `#${e.id}`, d?.type, sub, e.count, e.id];
+        return { name: d?.name ?? `#${e.id}`, type: d?.type ?? '', sub: d ? subtype(d) : '', count: e.count, id: e.id };
       })
-      .sort((a, b) => String(a[1]).localeCompare(String(b[1])) || String(a[0]).localeCompare(String(b[0])));
+      .sort((a, b) => a.type.localeCompare(b.type) || a.name.localeCompare(b.name) || a.sub.localeCompare(b.sub))
+      .map((r) => [r.name, r.type, r.sub, r.count, r.id]);
     return table(['Item', 'Type', 'Subtype', 'Count', 'Item id'], rows);
   },
 };
 
-const UNLOCKS: [label: string, accountPath: string, allPath: string][] = [
+/**
+ * Item subtype for the armory table. Armor adds its weight class, since the
+ * armory holds one copy of each piece per weight (e.g. "Gloves (Heavy)").
+ */
+function subtype(item: Item): string {
+  if (item.type === 'Armor') return `${item.details.type} (${item.details.weight_class})`;
+  return 'details' in item && 'type' in item.details ? item.details.type : '';
+}
+
+type AccountUnlockRoute =
+  | '/v2/account/skins'
+  | '/v2/account/dyes'
+  | '/v2/account/minis'
+  | '/v2/account/outfits'
+  | '/v2/account/gliders'
+  | '/v2/account/mounts/skins'
+  | '/v2/account/finishers'
+  | '/v2/account/novelties'
+  | '/v2/account/titles'
+  | '/v2/account/recipes';
+
+type UnlockCatalogRoute =
+  | '/v2/skins'
+  | '/v2/colors'
+  | '/v2/minis'
+  | '/v2/outfits'
+  | '/v2/gliders'
+  | '/v2/mounts/skins'
+  | '/v2/finishers'
+  | '/v2/novelties'
+  | '/v2/titles'
+  | '/v2/recipes';
+
+const UNLOCKS: [label: string, accountRoute: AccountUnlockRoute, allRoute: UnlockCatalogRoute][] = [
   ['Skins', '/v2/account/skins', '/v2/skins'],
   ['Dyes', '/v2/account/dyes', '/v2/colors'],
   ['Minis', '/v2/account/minis', '/v2/minis'],
@@ -170,8 +196,8 @@ export const unlocks: ReportSection = {
       UNLOCKS.map(async ([label, mine, all]) => {
         try {
           const [owned, total] = await Promise.all([
-            ctx.account<unknown[]>(mine),
-            ctx.client.listIds(all),
+            ctx.client.get(mine, ACCOUNT),
+            ctx.client.ids(all),
           ]);
           return [label, num(owned.length), num(total.length), `${Math.floor((owned.length / total.length) * 100)}%`];
         } catch {

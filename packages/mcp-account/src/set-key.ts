@@ -1,4 +1,4 @@
-import { Gw2ApiError, Gw2Client, PERMISSION_HELP, ALL_PERMISSIONS, looksLikeApiKey, tokenInfo } from '@gw2-ai/core';
+import { ALL_PERMISSIONS, Gw2ApiError, Gw2Client, PERMISSION_HELP, looksLikeApiKey, type TokenInfo } from '@gw2-ai/client';
 import { APPLICATIONS_URL, saveApiKey } from './key.js';
 
 /**
@@ -68,14 +68,16 @@ export async function setKeyCommand(): Promise<number> {
     return 1;
   }
 
-  let info;
+  let info: TokenInfo;
   try {
-    info = await tokenInfo(new Gw2Client({ apiKey: key }));
+    info = await new Gw2Client({ apiKey: key }).get('/v2/tokeninfo');
   } catch (err) {
     const reason =
       err instanceof Gw2ApiError && err.isAuthError
         ? 'the API rejected the key (wrong, deleted, or expired)'
-        : (err as Error).message;
+        : err instanceof Error
+          ? err.message
+          : String(err);
     process.stderr.write(`Could not verify the key: ${reason}. Nothing saved.\n`);
     return 1;
   }

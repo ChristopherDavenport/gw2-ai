@@ -1,7 +1,5 @@
-import type { Gw2Client } from '../client.js';
-import { missingPermissions, tokenInfo } from '../permissions.js';
+import { missingPermissions, type Gw2Client, type TokenInfo } from '@gw2-ai/client';
 import { text } from '../format.js';
-import type { TokenInfo } from '../types.js';
 import { characters, overview, wallet } from './account.js';
 import { createContext, type ReportOptions, type ReportSection } from './context.js';
 import { items, legendaryArmory, materials, unlocks } from './items.js';
@@ -9,8 +7,11 @@ import { achievements, resets, wizardsVault } from './progress.js';
 import { tradingPost } from './trading.js';
 
 export type { ReportContext, ReportOptions, ReportSection } from './context.js';
-export { createContext } from './context.js';
+export { ACCOUNT, createContext } from './context.js';
 export { collectHoldings } from './items.js';
+
+/** Token info changes only when the key is edited; cache it across calls. */
+export const TOKEN_TTL = 5 * 60 * 1000;
 
 /** All report sections, in the order they appear in a full report. */
 export const SECTIONS: readonly ReportSection[] = [
@@ -58,7 +59,7 @@ export interface BuildReportOptions extends ReportOptions {
  * whole report.
  */
 export async function buildReport(client: Gw2Client, options: BuildReportOptions = {}): Promise<Report> {
-  const token = await tokenInfo(client);
+  const token = await client.get('/v2/tokeninfo', { ttlMs: TOKEN_TTL });
   const wanted = options.sections ? new Set(options.sections) : undefined;
   const unknown = options.sections?.filter((id) => !SECTION_IDS.includes(id)) ?? [];
   if (unknown.length) throw new Error(`Unknown report sections: ${unknown.join(', ')}. Valid: ${SECTION_IDS.join(', ')}`);
@@ -67,7 +68,7 @@ export async function buildReport(client: Gw2Client, options: BuildReportOptions
   const chosen = SECTIONS.filter((s) => !wanted || wanted.has(s.id));
   const results = await Promise.all(
     chosen.map(async (s): Promise<SectionResult> => {
-      const missing = missingPermissions(token, s.permissions);
+      const missing = missingPermissions(token.permissions, s.permissions);
       let result: SectionResult;
       if (missing.length) {
         const reason = `API key lacks permission: ${missing.join(', ')}`;
@@ -76,7 +77,7 @@ export async function buildReport(client: Gw2Client, options: BuildReportOptions
         try {
           result = { id: s.id, title: s.title, status: 'ok', markdown: await s.render(ctx) };
         } catch (err) {
-          const reason = (err as Error).message;
+          const reason = err instanceof Error ? err.message : String(err);
           result = { id: s.id, title: s.title, status: 'error', reason, markdown: `_Failed: ${reason}_` };
         }
       }

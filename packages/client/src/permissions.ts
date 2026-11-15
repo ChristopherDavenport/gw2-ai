@@ -1,5 +1,5 @@
-import type { Gw2Client } from './client.js';
-import type { Permission, TokenInfo } from './types.js';
+import { ROUTES, type Route } from './routes/index.js';
+import type { Permission } from './spec.js';
 
 export const ALL_PERMISSIONS: readonly Permission[] = [
   'account',
@@ -21,7 +21,7 @@ export const PERMISSION_HELP: Record<Permission, string> = {
   characters: 'character list, levels, crafting',
   guilds: 'guild stash, treasury, log (guild leaders)',
   inventories: 'bank, material storage, shared and character inventories',
-  progression: 'achievements, masteries, dailies, raids, Wizard\'s Vault',
+  progression: "achievements, masteries, dailies, raids, Wizard's Vault",
   pvp: 'PvP stats and games',
   tradingpost: 'trading post orders, history, delivery box',
   unlocks: 'skins, dyes, minis, recipes, legendary armory',
@@ -29,14 +29,13 @@ export const PERMISSION_HELP: Record<Permission, string> = {
   wvw: 'WvW team and rank',
 };
 
-export async function tokenInfo(c: Gw2Client): Promise<TokenInfo> {
-  return c.get<TokenInfo>('/v2/tokeninfo', { ttlMs: 5 * 60 * 1000 });
-}
-
-/** Permissions from `required` that the key lacks. */
-export function missingPermissions(info: TokenInfo, required: readonly Permission[]): Permission[] {
-  const have = new Set(info.permissions);
-  return required.filter((p) => !have.has(p));
+/** Permissions `route` needs that `granted` lacks (every key has `account`). */
+export function missingPermissions(granted: readonly Permission[], route: Route): Permission[];
+export function missingPermissions(granted: readonly Permission[], required: readonly Permission[]): Permission[];
+export function missingPermissions(granted: readonly Permission[], need: Route | readonly Permission[]): Permission[] {
+  const required = typeof need === 'string' ? ['account' as const, ...ROUTES[need].permissions] : need;
+  const have = new Set(granted);
+  return [...new Set(required)].filter((p) => !have.has(p));
 }
 
 /**

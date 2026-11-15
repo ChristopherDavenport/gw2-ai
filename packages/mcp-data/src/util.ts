@@ -1,4 +1,4 @@
-import { Gw2ApiError } from '@gw2-ai/core';
+import { Gw2ApiError } from '@gw2-ai/client';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
 /** Every tool here only reads, and reaches out to the public GW2 API or wiki. */

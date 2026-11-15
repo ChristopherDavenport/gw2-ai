@@ -1,4 +1,4 @@
-import { Gw2Client, RateLimiter } from '@gw2-ai/core';
+import { Gw2Client, RateLimiter } from '@gw2-ai/client';
 import { describe, expect, it } from 'vitest';
 import { character, findItem, keyInfo, shoppingList } from '../src/tools.js';
 

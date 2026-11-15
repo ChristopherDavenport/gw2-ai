@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { Gw2Client, RateLimiter, buildRecipeTree, flattenLeaves, renderRecipeTree } from '../src/index.js';
+import { Gw2Client, RateLimiter } from '@gw2-ai/client';
+import { buildRecipeTree, flattenLeaves, renderRecipeTree } from '../src/index.js';
 
 interface FakeRecipe {
   id: number;

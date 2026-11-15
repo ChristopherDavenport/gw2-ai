@@ -30,8 +30,8 @@ jobs:
 
       - run: pnpm install --frozen-lockfile
 
-      - name: Build core
-        run: pnpm --filter @gw2-ai/core build
+      - name: Build client and core
+        run: pnpm --filter "@gw2-ai/site^..." build
 
       - name: Test site
         run: pnpm --filter @gw2-ai/site test

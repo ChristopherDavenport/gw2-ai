@@ -7,7 +7,17 @@ description: Reference for writing code against the official Guild Wars 2 (GW2) 
 
 Facts below were checked against the live API on 2026-11-15. The endpoint catalog, with the permissions each route needs, is in [reference.md](reference.md). Don't invent endpoints: if a route isn't in the catalog, fetch `https://api.guildwars2.com/v2.json?v=latest` to check.
 
-In this repository, `packages/core` (`Gw2Client`, `WikiClient`) already implements everything here: batching, caching, rate limiting, retries, schema pinning. Use it rather than re-implementing.
+In this repository, `@gw2-ai/client` (`packages/client`: `Gw2Client`, `WikiClient`) already implements everything here: batching, caching, rate limiting, retries, schema pinning. Use it rather than re-implementing. Every `/v2` route is typed, so pass the route template and the response type follows; use the client's exported types (`Item`, `Character`, `CommercePrice`...) instead of declaring your own:
+
+```ts
+const gw2 = new Gw2Client({ apiKey });
+const bank = await gw2.get('/v2/account/bank');                           // (InventorySlot | null)[]
+const build = await gw2.get('/v2/characters/:id/buildtabs/active', { path: { id: name } });
+const prices = await gw2.many('/v2/commerce/prices', [19721]);            // Map<number, CommercePrice>
+const recipeIds = await gw2.get('/v2/recipes/search', { query: { output: 19721 } });
+```
+
+`packages/core` builds on it: the markdown account report, recipe trees and formatting helpers.
 
 ## Requests
 

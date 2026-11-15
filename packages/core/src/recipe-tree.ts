@@ -1,8 +1,6 @@
-import { catalog } from './catalog.js';
-import { mapLimit, type Gw2Client } from './client.js';
+import { mapLimit, pageUrl, type CommercePrice, type Gw2Client, type Item, type Recipe, type RecipeIngredient } from '@gw2-ai/client';
+import { byId } from './catalog.js';
 import { coins, num, table } from './format.js';
-import type { Item, Price, Recipe, RecipeIngredient } from './types.js';
-import { pageUrl } from './wiki.js';
 
 export type IngredientKind = RecipeIngredient['type'];
 
@@ -67,7 +65,7 @@ export interface RecipeTreeOptions {
 
 interface TreeData {
   items: Map<number, Item>;
-  prices: Map<number, Price>;
+  prices: Map<number, CommercePrice>;
   recipesByOutput: Map<number, Recipe[]>;
   /** Item ids whose recipes were searched. */
   searched: Set<number>;
@@ -117,15 +115,17 @@ async function fetchTreeData(client: Gw2Client, rootId: number, maxDepth: number
   for (let depth = 0; frontier.length > 0 && depth <= maxDepth; depth++) {
     const search = depth < maxDepth;
     const [defs, prices, recipeIdLists] = await Promise.all([
-      catalog.items(client, frontier),
-      catalog.prices(client, frontier),
-      search ? mapLimit(frontier, 8, (id) => catalog.recipesFor(client, id)) : Promise.resolve([]),
+      client.many('/v2/items', frontier),
+      client.many('/v2/commerce/prices', frontier),
+      search
+        ? mapLimit(frontier, 8, (id) => client.get('/v2/recipes/search', { query: { output: id } }))
+        : Promise.resolve([]),
     ]);
     for (const [id, item] of defs) data.items.set(id, item);
     for (const [id, price] of prices) data.prices.set(id, price);
     if (search) for (const id of frontier) data.searched.add(id);
 
-    const recipes = await catalog.recipes(client, recipeIdLists.flat());
+    const recipes = await client.many('/v2/recipes', recipeIdLists.flat());
     const next: number[] = [];
     for (const r of recipes.values()) {
       const list = data.recipesByOutput.get(r.output_item_id) ?? [];
@@ -143,12 +143,8 @@ async function fetchTreeData(client: Gw2Client, rootId: number, maxDepth: number
     frontier = next;
   }
 
-  if (currencyIds.size > 0) data.currencies = await catalog.currencies(client);
-  if (upgradeIds.size > 0) {
-    data.guildUpgrades = await client.getMany<{ id: number; name: string }>('/v2/guild/upgrades', upgradeIds, {
-      auth: false,
-    });
-  }
+  if (currencyIds.size > 0) data.currencies = byId(await client.all('/v2/currencies'));
+  if (upgradeIds.size > 0) data.guildUpgrades = await client.many('/v2/guild/upgrades', upgradeIds);
   return data;
 }
 

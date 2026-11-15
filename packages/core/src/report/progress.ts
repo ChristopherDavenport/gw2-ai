@@ -1,9 +1,8 @@
-import { catalog } from '../catalog.js';
+import type { AccountWizardsVaultPeriod, AccountWizardsVaultSpecial } from '@gw2-ai/client';
 import { num, pct, table } from '../format.js';
-import type { AccountAchievement, WizardsVaultPeriod } from '../types.js';
-import type { ReportSection } from './context.js';
+import { ACCOUNT, type ReportSection } from './context.js';
 
-function vaultTable(period: WizardsVaultPeriod): string {
+function vaultTable(period: AccountWizardsVaultPeriod | AccountWizardsVaultSpecial): string {
   const rows = period.objectives.map((o) => [
     o.title,
     o.track,
@@ -11,9 +10,10 @@ function vaultTable(period: WizardsVaultPeriod): string {
     o.claimed ? 'claimed' : o.progress_current >= o.progress_complete ? 'ready to claim' : 'open',
     o.acclaim,
   ]);
+  // The special period has no meta reward.
   const meta =
-    period.meta_progress_complete !== undefined
-      ? `Meta: ${period.meta_progress_current ?? 0}/${period.meta_progress_complete}` +
+    'meta_progress_complete' in period
+      ? `Meta: ${period.meta_progress_current}/${period.meta_progress_complete}` +
         `${period.meta_reward_claimed ? ' (claimed)' : ''}\n\n`
       : '';
   return meta + table(['Objective', 'Track', 'Progress', 'Status', 'Astral acclaim'], rows);
@@ -25,14 +25,17 @@ export const wizardsVault: ReportSection = {
   summary: "Daily, weekly and special Wizard's Vault objectives with progress and claim state.",
   permissions: ['account', 'progression'],
   async render(ctx) {
-    const periods = ['daily', 'weekly', 'special'] as const;
+    const periods: [label: string, load: () => Promise<AccountWizardsVaultPeriod | AccountWizardsVaultSpecial>][] = [
+      ['daily', () => ctx.client.get('/v2/account/wizardsvault/daily', ACCOUNT)],
+      ['weekly', () => ctx.client.get('/v2/account/wizardsvault/weekly', ACCOUNT)],
+      ['special', () => ctx.client.get('/v2/account/wizardsvault/special', ACCOUNT)],
+    ];
     const parts = await Promise.all(
-      periods.map(async (p) => {
+      periods.map(async ([p, load]) => {
         try {
-          const data = await ctx.account<WizardsVaultPeriod>(`/v2/account/wizardsvault/${p}`);
-          return `### ${p[0]!.toUpperCase()}${p.slice(1)}\n\n${vaultTable(data)}`;
+          return `### ${p[0]!.toUpperCase()}${p.slice(1)}\n\n${vaultTable(await load())}`;
         } catch (err) {
-          return `### ${p}\n\n_Unavailable: ${(err as Error).message}_`;
+          return `### ${p}\n\n_Unavailable: ${errorMessage(err)}_`;
         }
       }),
     );
@@ -42,15 +45,11 @@ export const wizardsVault: ReportSection = {
 
 /** Completed vs. remaining for a daily/weekly reset list. */
 async function resetList(
-  ctx: Parameters<ReportSection['render']>[0],
   label: string,
-  allPath: string,
-  donePath: string,
+  allList: Promise<readonly { id: string }[]>,
+  doneList: Promise<readonly string[]>,
 ): Promise<string> {
-  const [all, done] = await Promise.all([
-    ctx.client.get<{ id: string }[]>(allPath, { params: { ids: 'all' } }),
-    ctx.account<string[]>(donePath),
-  ]);
+  const [all, done] = await Promise.all([allList, doneList]);
   const doneSet = new Set(done);
   const remaining = all.map((x) => x.id).filter((id) => !doneSet.has(id));
   return [
@@ -67,16 +66,13 @@ export const resets: ReportSection = {
   permissions: ['account', 'progression'],
   async render(ctx) {
     const parts = await Promise.allSettled([
-      resetList(ctx, 'World bosses (daily)', '/v2/worldbosses', '/v2/account/worldbosses'),
-      resetList(ctx, "Hero's Choice map chests (daily)", '/v2/mapchests', '/v2/account/mapchests'),
-      resetList(ctx, 'Daily crafting', '/v2/dailycrafting', '/v2/account/dailycrafting'),
+      resetList('World bosses (daily)', ctx.client.all('/v2/worldbosses'), ctx.client.get('/v2/account/worldbosses', ACCOUNT)),
+      resetList("Hero's Choice map chests (daily)", ctx.client.all('/v2/mapchests'), ctx.client.get('/v2/account/mapchests', ACCOUNT)),
+      resetList('Daily crafting', ctx.client.all('/v2/dailycrafting'), ctx.client.get('/v2/account/dailycrafting', ACCOUNT)),
       (async () => {
         const [raids, cleared] = await Promise.all([
-          ctx.client.get<{ id: string; wings: { id: string; events: { id: string; type: string }[] }[] }[]>(
-            '/v2/raids',
-            { params: { ids: 'all' } },
-          ),
-          ctx.account<string[]>('/v2/account/raids'),
+          ctx.client.all('/v2/raids'),
+          ctx.client.get('/v2/account/raids', ACCOUNT),
         ]);
         const done = new Set(cleared);
         const rows = raids.flatMap((r) =>
@@ -90,7 +86,7 @@ export const resets: ReportSection = {
       })(),
     ]);
     return parts
-      .map((p) => (p.status === 'fulfilled' ? p.value : `_Unavailable: ${(p.reason as Error).message}_`))
+      .map((p) => (p.status === 'fulfilled' ? p.value : `_Unavailable: ${errorMessage(p.reason)}_`))
       .join('\n\n');
   },
 };
@@ -101,12 +97,12 @@ export const achievements: ReportSection = {
   summary: 'Unfinished achievements sorted by percent complete, for picking easy next goals.',
   permissions: ['account', 'progression'],
   async render(ctx) {
-    const progress = await ctx.account<AccountAchievement[]>('/v2/account/achievements');
+    const progress = await ctx.client.get('/v2/account/achievements', ACCOUNT);
     const open = progress
       .filter((a) => !a.done && a.max && (a.current ?? 0) > 0)
       .sort((a, b) => (b.current ?? 0) / (b.max ?? 1) - (a.current ?? 0) / (a.max ?? 1))
       .slice(0, Math.min(ctx.options.maxRows, 50));
-    const defs = await catalog.achievements(ctx.client, open.map((a) => a.id));
+    const defs = await ctx.client.many('/v2/achievements', open.map((a) => a.id));
     const rows = open.map((a) => {
       const def = defs.get(a.id);
       return [
@@ -124,3 +120,7 @@ export const achievements: ReportSection = {
     );
   },
 };
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
