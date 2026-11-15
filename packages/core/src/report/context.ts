@@ -36,6 +36,11 @@ export interface ReportContext {
   options: Required<ReportOptions>;
   facts: Fact[];
   totals: Totals;
+  /**
+   * What a section left out and how to get it, listed under "Not in this
+   * report" so a model doesn't read a capped table as the whole dataset.
+   */
+  omissions: string[];
 }
 
 /**
@@ -64,5 +69,6 @@ export function createContext(client: Gw2Client, options: ReportOptions = {}): R
     },
     facts: [],
     totals: {},
+    omissions: [],
   };
 }

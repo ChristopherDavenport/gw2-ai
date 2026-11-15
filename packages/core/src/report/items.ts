@@ -26,6 +26,15 @@ function value(prices: Map<number, CommercePrice>, id: number, count: number): n
   return p && p.buys.unit_price > 0 ? p.buys.unit_price * count : undefined;
 }
 
+/**
+ * Legendary and Ascended items with no trading post price: gifts, clovers,
+ * ascended chests and gear. Sorting by value alone would bury them, and they
+ * are what progression questions are about.
+ */
+function notable(item: Item | undefined, v: number | undefined): boolean {
+  return v === undefined && (item?.rarity === 'Legendary' || item?.rarity === 'Ascended');
+}
+
 async function pricesFor(ctx: ReportContext, items: Map<number, Item>): Promise<Map<number, CommercePrice>> {
   if (!ctx.options.valuation) return new Map();
   const tradable = [...items.values()]
@@ -84,14 +93,21 @@ export const items: ReportSection = {
       const where = [...h.where].map(([k, n]) => `${k} ${n}`).join(', ');
       return [def?.name ?? `#${h.id}`, def?.rarity, num(h.count), v === undefined ? '' : coins(v), where, h.id];
     });
-    const rest = list.slice(limit);
+    const beyond = list.slice(limit);
+    const pinned = summary ? beyond.filter(({ h, v }) => notable(defs.get(h.id), v)) : [];
+    const rest = summary ? beyond.filter((x) => !pinned.includes(x)) : beyond;
     const head = [
       `${num(holdings.size)} distinct items.`,
       ctx.options.valuation ? ` Instant-sell value of tradable items: **${coins(total)}**.` : '',
-      rest.length ? ` The ${num(limit)} most valuable are in the table.` : '',
+      beyond.length ? ` The ${num(limit)} most valuable are in the table.` : '',
       notes.length ? ` (${notes.join('; ')})` : '',
     ].join('');
     let tail = '';
+    if (pinned.length) {
+      tail +=
+        `\n\n**Notable without a trading post price** (Legendary and Ascended, ${num(pinned.length)}): ` +
+        inlineCounts(pinned.map(({ h }) => ({ name: defs.get(h.id)?.name ?? `#${h.id}`, count: h.count })));
+    }
     if (rest.length && summary) {
       const restValue = rest.reduce((sum, x) => sum + (x.v ?? 0), 0);
       // Grouped by item type so "which ascended weapons do I have?" is a scan of one line.
@@ -104,11 +120,18 @@ export const items: ReportSection = {
       const lines = [...byType]
         .sort((a, b) => b[1].length - a[1].length)
         .map(([type, list]) => `- **${type}** (${list.length}): ${inlineCounts(list)}`);
-      tail =
+      tail +=
         `\n\nAlso held, by type (${num(rest.length)} more, ${coins(restValue)} together; ` +
         `most are account bound so have no price; locations via the gw2_find_item tool):\n\n${lines.join('\n')}`;
     } else if (rest.length) {
-      tail = `\n\n${num(rest.length)} lower-value items not shown (raise maxRows).`;
+      tail = `\n\n_${num(rest.length)} lower-value items not shown (raise maxRows)._`;
+    }
+    if (beyond.length) {
+      ctx.omissions.push(
+        summary
+          ? `Items: past the top ${limit}, stacks are listed by name and count only, without locations (\`gw2_find_item\`)`
+          : `Items: ${num(rest.length)} lower-value stacks beyond the ${limit}-row table`,
+      );
     }
     return `${head}\n\n${table(['Item', 'Rarity', 'Count', 'Value', 'Where', 'Item id'], rows)}${tail}`;
   },
@@ -140,15 +163,25 @@ export const materials: ReportSection = {
           .sort((a, b) => (b.v ?? -1) - (a.v ?? -1) || b.m.count - a.m.count);
         const catTotal = valued.reduce((sum, x) => sum + (x.v ?? 0), 0);
         grand += catTotal;
-        const shown = summary ? valued.slice(0, SUMMARY_MATERIAL_ROWS) : valued;
-        const rest = summary ? valued.slice(SUMMARY_MATERIAL_ROWS) : [];
-        const rows = shown.map(({ m, v }) => [nameOf(defs, m.id), num(m.count), v === undefined ? '' : coins(v), m.id]);
+        const top = summary ? valued.slice(0, SUMMARY_MATERIAL_ROWS) : valued;
+        const pinned = summary ? valued.slice(SUMMARY_MATERIAL_ROWS).filter(({ m, v }) => notable(defs.get(m.id), v)) : [];
+        const shown = [...top, ...pinned];
+        const rest = summary ? valued.filter((x) => !shown.includes(x)) : [];
+        const rows = shown.map(({ m, v }) => [
+          nameOf(defs, m.id),
+          num(m.count),
+          v !== undefined ? coins(v) : notable(defs.get(m.id), v) ? 'account bound' : '',
+          m.id,
+        ]);
         const tail = rest.length
           ? `\n\nAlso: ${inlineCounts(rest.map(({ m }) => ({ name: nameOf(defs, m.id), count: m.count })))}`
           : '';
         const valueNote = ctx.options.valuation ? ` — ${coins(catTotal)}` : '';
         return `### ${nameOf(categories, cat)}${valueNote}\n\n${table(['Material', 'Count', 'Value', 'Item id'], rows)}${tail}`;
       });
+    if (summary) {
+      ctx.omissions.push('Material storage: the 8 most valuable per category plus Legendary/Ascended ones are table rows; the rest are on `Also` lines, name and count only');
+    }
     if (ctx.options.valuation) {
       ctx.totals.materials = grand;
       ctx.facts.push({ order: 30, label: 'Material storage', value: `${coins(grand)} instant-sell, ${num(held.length)} materials` });

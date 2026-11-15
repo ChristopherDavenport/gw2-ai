@@ -174,9 +174,16 @@ export const achievements: ReportSection = {
       ];
     });
     const doneCount = progress.filter((a) => a.done).length;
+    const unfinished = progress.length - doneCount;
+    ctx.omissions.push(
+      `Achievements: only the ${rows.length} closest to completion of ${num(unfinished)} unfinished; ones with no progress are not listed ` +
+        '(one achievement: `gw2_account_get` path `/v2/account/achievements` with params `{"ids": "<id>"}`)',
+    );
     return (
-      `${num(doneCount)} achievements complete; ${num(progress.length - doneCount)} tracked but unfinished.\n\n` +
-      table(['Achievement', 'Progress', '%', 'Requirement', 'Achievement id'], rows)
+      `${num(doneCount)} achievements complete; ${num(unfinished)} tracked but unfinished.\n\n` +
+      table(['Achievement', 'Progress', '%', 'Requirement', 'Achievement id'], rows) +
+      `\n\n_Showing the ${rows.length} unfinished achievements closest to completion, of ${num(unfinished)}. ` +
+      'An achievement missing here may still be in progress: do not assume it is unstarted._'
     );
   },
 };

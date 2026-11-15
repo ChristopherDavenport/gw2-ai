@@ -49,6 +49,16 @@ export const tradingPost: ReportSection = {
       return [nameOf(defs, t.item_id), num(t.quantity), coins(t.price), status, day(t.created), t.item_id];
     });
     const historyRows = ctx.options.detail === 'summary' ? 10 : 25;
+    // The API returns one page (50) of the last 90 days unless paged.
+    const of = (list: readonly unknown[]) => `${num(list.length)}${list.length >= 50 ? '+' : ''}`;
+    if (sold.length > historyRows || bought.length > historyRows) {
+      ctx.omissions.push(
+        `Trading post history: newest ${historyRows} of ${of(sold)} sales and ${of(bought)} purchases ` +
+          '(more: `gw2_account_get` path `/v2/commerce/transactions/history/sells` or `/buys`)',
+      );
+    }
+    const footer = (list: readonly unknown[]) =>
+      list.length > historyRows ? `\n\n_Newest ${historyRows} of ${of(list)} in the last 90 days._` : '';
     const history = (list: CommerceCompletedTransaction[]) =>
       list
         .slice(0, historyRows)
@@ -58,8 +68,8 @@ export const tradingPost: ReportSection = {
       `### Delivery box\n\nCoins waiting: **${coins(delivery.coins)}**\n\n${table(['Item', 'Count', 'Item id'], deliveryRows)}`,
       `### Open buy orders\n\n${table(['Item', 'Qty', 'Unit price', 'Status', 'Placed', 'Item id'], buyRows)}`,
       `### Open sell listings\n\n${table(['Item', 'Qty', 'Unit price', 'Status', 'Listed', 'Item id'], sellRows)}`,
-      `### Recent sales (last 90 days, newest ${historyRows})\n\n${table(['Item', 'Qty', 'Unit price', 'Sold', 'Item id'], history(sold))}`,
-      `### Recent purchases (last 90 days, newest ${historyRows})\n\n${table(['Item', 'Qty', 'Unit price', 'Bought', 'Item id'], history(bought))}`,
+      `### Recent sales (last 90 days, newest ${historyRows})\n\n${table(['Item', 'Qty', 'Unit price', 'Sold', 'Item id'], history(sold))}${footer(sold)}`,
+      `### Recent purchases (last 90 days, newest ${historyRows})\n\n${table(['Item', 'Qty', 'Unit price', 'Bought', 'Item id'], history(bought))}${footer(bought)}`,
     ].join('\n\n');
   },
 };

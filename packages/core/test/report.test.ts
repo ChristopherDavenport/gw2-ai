@@ -191,3 +191,58 @@ describe('readable ids', () => {
     expect(fmt.inlineCounts([{ name: 'A', count: 1 }, { name: 'B', count: 1200 }])).toBe('A, B ×1,200');
   });
 });
+
+describe('omission signals', () => {
+  const item = (id: number, rarity: string, flags: string[] = []) => ({
+    id, name: `Item ${id}`, type: 'Trophy', rarity, level: 0, vendor_value: 0, game_types: [], flags, restrictions: [], chat_link: '',
+  });
+
+  it('lists what is left out, including equipped gear, under the header', async () => {
+    const c = client((url) => (url.pathname === '/v2/tokeninfo' ? token(['account', 'wallet']) : url.pathname === '/v2/account/wallet' ? { body: [] } : url.pathname === '/v2/currencies' ? { body: [] } : notFound));
+    const { markdown } = await buildReport(c, { sections: ['wallet'] });
+    const head = markdown.slice(0, markdown.indexOf('## Contents'));
+    expect(head).toContain('**Not in this report:**');
+    expect(head).toContain('characters are not unequipped');
+    expect(head).toContain("Don't treat missing data as zero or unstarted");
+  });
+
+  it('labels the achievements table as a cut', async () => {
+    const progress = Array.from({ length: 40 }, (_, i) => ({ id: i + 1, current: i + 1, max: 100, done: false }));
+    const c = client((url) => {
+      if (url.pathname === '/v2/tokeninfo') return token(['account', 'progression']);
+      if (url.pathname === '/v2/account/achievements') return { body: progress };
+      if (url.pathname === '/v2/achievements')
+        return { body: url.searchParams.get('ids')!.split(',').map((id) => ({ id: Number(id), name: `A${id}`, description: '', requirement: 'Do it', locked_text: '', type: 'Default', flags: [], tiers: [] })) };
+      return notFound;
+    });
+    const { markdown } = await buildReport(c, { sections: ['achievements'] });
+    expect(markdown).toContain('_Showing the 25 unfinished achievements closest to completion, of 40.');
+    expect(markdown).toContain('Achievements: only the 25 closest to completion of 40 unfinished');
+  });
+
+  it('calls out unpriced Legendary and Ascended items instead of burying them', async () => {
+    const slots = [
+      ...Array.from({ length: 35 }, (_, i) => ({ id: 1000 + i, count: 1 })),
+      { id: 1, count: 4 },
+      { id: 2, count: 1 },
+    ];
+    const c = client((url) => {
+      if (url.pathname === '/v2/tokeninfo') return token(['account', 'inventories']);
+      if (url.pathname === '/v2/account/bank') return { body: slots };
+      if (url.pathname === '/v2/account/inventory') return { body: [] };
+      if (url.pathname === '/v2/items')
+        return {
+          body: url.searchParams.get('ids')!.split(',').map(Number).map((id) =>
+            id === 1 ? item(1, 'Legendary', ['AccountBound']) : id === 2 ? item(2, 'Ascended', ['AccountBound']) : item(id, 'Exotic'),
+          ),
+        };
+      if (url.pathname === '/v2/commerce/prices')
+        return { body: url.searchParams.get('ids')!.split(',').map((id) => ({ id: Number(id), whitelisted: true, buys: { quantity: 1, unit_price: 100 }, sells: { quantity: 1, unit_price: 120 } })) };
+      return notFound;
+    });
+    const { markdown } = await buildReport(c, { sections: ['items'] });
+    expect(markdown).toContain('**Notable without a trading post price** (Legendary and Ascended, 2): Item 1 ×4, Item 2');
+    const also = markdown.slice(markdown.indexOf('Also held'));
+    expect(also).not.toContain('Item 1 ×4');
+  });
+});
