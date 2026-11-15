@@ -7,7 +7,7 @@ description: Reference for writing code against the official Guild Wars 2 (GW2) 
 
 Facts below were checked against the live API on 2026-11-15. The endpoint catalog, with the permissions each route needs, is in [reference.md](reference.md). Don't invent endpoints: if a route isn't in the catalog, fetch `https://api.guildwars2.com/v2.json?v=latest` to check.
 
-In this repository, `@gw2-ai/client` (`packages/client`: `Gw2Client`, `WikiClient`) already implements everything here: batching, caching, rate limiting, retries, schema pinning. Use it rather than re-implementing. Every `/v2` route is typed, so pass the route template and the response type follows; use the client's exported types (`Item`, `Character`, `CommercePrice`...) instead of declaring your own:
+In this repository, `@gw2kit/client` (`packages/client`: `Gw2Client`) already implements everything here: batching, caching, rate limiting, retries, schema pinning. Use it rather than re-implementing. Every `/v2` route is typed, so pass the route template and the response type follows; use the client's exported types (`Item`, `Character`, `CommercePrice`...) instead of declaring your own:
 
 ```ts
 const gw2 = new Gw2Client({ apiKey });
@@ -17,7 +17,7 @@ const prices = await gw2.many('/v2/commerce/prices', [19721]);            // Map
 const recipeIds = await gw2.get('/v2/recipes/search', { query: { output: 19721 } });
 ```
 
-`packages/core` builds on it: the markdown account report, recipe trees and formatting helpers.
+`@gw2kit/wiki` (`packages/wiki`: `WikiClient`) reads the wiki, including typed Mystic Forge recipes and vendor offers. `@gw2kit/recipes` (`packages/recipes`) builds recipe trees: `fetchRecipeData` does the requests and returns plain JSON, and `solveRecipeTree` is pure. `packages/core` (`@gw2-ai/core`) turns all of it into markdown for models.
 
 ## Requests
 
@@ -69,7 +69,7 @@ For large id sets, split into chunks of 200 and run a few requests in parallel; 
   - SMW query: `action=ask&query=[[Has game id::19721]][[Has context::Item]]|?Has context|limit=10`
 - **Game ids collide across contexts.** Item, skin, achievement, trait, skill and location ids overlap: `[[Has game id::100]]` returns an achievement, a skin, an achievement category, an item and a location. Always add `[[Has context::Item]]` (or `Skin`, `Achievement`, `Skill`, `Trait`...) when mapping an API id to a wiki page.
 - API route documentation lives at `API:2/<route>`, for example `API:2/account/bank`; its infobox `scope` field lists the required permissions.
-- Mystic Forge recipes, collection steps, vendor prices and event timers exist only on the wiki. In this repository, `WikiClient.mysticForgeRecipes(outputIds)` and `mysticForgeRecipesUsing(itemId)` read the wiki's recipe data (SMW `Has recipe source::Mystic forge`); only recipes with `base: true` are fit for material totals, and chance-based ones (Mystic Clover) have a fractional average `output_item_count`. `itemPages(ids)`, `itemIdsByTitle(titles)` and `vendorOffers(title)` read NPC vendor offers (SMW `Sells item`); vendor queries are slow (1-10 s) and time out (503) when OR'd, so query one item at a time. The wiki rejects `ask` queries with more than about 12 OR'd values.
+- Mystic Forge recipes, collection steps, vendor prices and event timers exist only on the wiki. In this repository, `WikiClient.mysticForgeRecipes(outputIds)` (from `@gw2kit/wiki`) and `mysticForgeRecipesUsing(itemId)` read the wiki's recipe data (SMW `Has recipe source::Mystic forge`); only recipes with `base: true` are fit for material totals, and chance-based ones (Mystic Clover) have a fractional average `output_item_count`. `itemPages(ids)`, `itemIdsByTitle(titles)` and `vendorOffers(title)` read NPC vendor offers (SMW `Sells item`); vendor queries are slow (1-10 s) and time out (503) when OR'd, so query one item at a time. The wiki rejects `ask` queries with more than about 12 OR'd values.
 
 ## MCP tools in this repo
 

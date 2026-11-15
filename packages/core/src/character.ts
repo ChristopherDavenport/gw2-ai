@@ -11,7 +11,7 @@ import {
   type Gw2Client,
   type Item,
   type Permission,
-} from '@gw2-ai/client';
+} from '@gw2kit/client';
 import { infixUpgrade, nameOf } from './catalog.js';
 import { day, hours, num, table, text } from './format.js';
 import { ACCOUNT } from './report/context.js';

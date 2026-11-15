@@ -5,7 +5,7 @@ import {
   looksLikeApiKey,
   missingPermissions,
   type TokenInfo,
-} from '@gw2-ai/client';
+} from '@gw2kit/client';
 import { SECTIONS, TOKEN_TTL, buildReport, characterSectionId, type Report, type SectionResult } from '@gw2-ai/core';
 import { IdbCache } from './cache-store.js';
 import { reportFilename } from './filename.js';

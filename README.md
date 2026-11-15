@@ -55,7 +55,11 @@ For Claude Code without the plugin: `claude mcp add --scope user gw2-data -- npx
 
 ### Using the client library
 
-`@gw2-ai/client` is the typed API client the servers are built on, usable on its own in Node or the browser. See [packages/client/README.md](packages/client/README.md).
+The servers are built on three libraries under the `@gw2kit` scope, usable on their own in Node or the browser:
+
+- [`@gw2kit/client`](packages/client/README.md): the typed GW2 API client.
+- [`@gw2kit/wiki`](packages/wiki/README.md): wiki client with typed Mystic Forge recipes and NPC vendor offers.
+- [`@gw2kit/recipes`](packages/recipes/README.md): recipe trees across crafting, the Mystic Forge and vendors, with fetching separate from solving.
 
 ### Report site
 
@@ -97,16 +101,16 @@ Create keys at https://account.arena.net/applications. The GW2 API is read-only:
 
 ```sh
 pnpm install      # install all workspace packages
-pnpm build        # build the client, core, the MCP servers and the site
+pnpm build        # build the libraries, core, the MCP servers and the site
 pnpm test         # run all tests
 pnpm typecheck    # type-check every package
 pnpm dev:site     # run the report site locally with Vite
 ```
 
-All GW2 API calls go through `@gw2-ai/client`. Its route table types every `/v2` route, so the path, the parameters and the response are checked at compile time, and the key is attached only to routes that need one:
+All GW2 API calls go through `@gw2kit/client`. Its route table types every `/v2` route, so the path, the parameters and the response are checked at compile time, and the key is attached only to routes that need one:
 
 ```ts
-import { Gw2Client } from '@gw2-ai/client';
+import { Gw2Client } from '@gw2kit/client';
 
 const gw2 = new Gw2Client({ apiKey });
 const account = await gw2.get('/v2/account');                                   // Account
@@ -126,8 +130,10 @@ Working in this repository, Claude Code picks up `.mcp.json`, which runs the thr
   marketplace.json   lets `/plugin marketplace add` install this repo
 .mcp.json            MCP servers for local development
 packages/
-  client/            @gw2-ai/client: typed GW2 API client (every /v2 route), wiki client, cache, rate limiter
-  core/              @gw2-ai/core: markdown account report, recipe trees, formatting helpers
+  client/            @gw2kit/client: typed GW2 API client (every /v2 route), cache, rate limiter
+  wiki/              @gw2kit/wiki: wiki client; Mystic Forge recipes and vendor offers from wiki data
+  recipes/           @gw2kit/recipes: recipe trees (crafting, Mystic Forge, vendors); fetch and solve
+  core/              @gw2-ai/core: markdown for models: account report, character pages, recipe-tree rendering
   mcp-account/       MCP server for the player's account (needs an API key)
   mcp-data/          MCP server for items, recipes, prices, gem exchange, raw API
   mcp-wiki/          MCP server for wiki.guildwars2.com

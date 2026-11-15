@@ -1,4 +1,4 @@
-import { ALL_PERMISSIONS, Gw2ApiError, Gw2Client, PERMISSION_HELP, looksLikeApiKey, type TokenInfo } from '@gw2-ai/client';
+import { ALL_PERMISSIONS, Gw2ApiError, Gw2Client, PERMISSION_HELP, looksLikeApiKey, type TokenInfo } from '@gw2kit/client';
 import { APPLICATIONS_URL, saveApiKey } from './key.js';
 
 /**

@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { WikiClient, pageUrl } from '@gw2-ai/client';
+import { WikiClient, pageUrl } from '@gw2kit/wiki';
 import { fmt } from '@gw2-ai/core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

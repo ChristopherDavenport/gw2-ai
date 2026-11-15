@@ -1,5 +1,5 @@
 {
-  "name": "@gw2-ai/client",
+  "name": "@gw2kit/client",
   "version": "0.1.0",
   "description": "Fully typed Guild Wars 2 API client: every /v2 route, automatic auth, batching, caching and rate limiting. No dependencies; runs in Node and browsers.",
   "keywords": [

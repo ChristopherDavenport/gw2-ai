@@ -1,5 +1,4 @@
-import { MemoryCache, TTL, type CacheStore } from './cache.js';
-import { RateLimiter, sleep } from './rate-limit.js';
+import { MemoryCache, RateLimiter, TTL, sleep, type CacheStore } from '@gw2kit/client';
 
 export const WIKI_BASE = 'https://wiki.guildwars2.com';
 const API = `${WIKI_BASE}/api.php`;

@@ -1,7 +1,6 @@
 import {
   Gw2ApiError,
   MAX_IDS_PER_REQUEST,
-  pageUrl,
   type Achievement,
   type CommerceListingEntry,
   type CommercePrice,
@@ -10,12 +9,12 @@ import {
   type ItemFlag,
   type ItemStat,
   type Mini,
-  type MysticForgeRecipe,
   type Skin,
   type Title,
-  type WikiClient,
-} from '@gw2-ai/client';
-import { buildRecipeTree, fmt, infixUpgrade, nameOf, renderRecipeTree, searchItemsByName } from '@gw2-ai/core';
+} from '@gw2kit/client';
+import { pageUrl, type MysticForgeRecipe, type WikiClient } from '@gw2kit/wiki';
+import { DEFAULT_VENDOR_CURRENCY, fmt, infixUpgrade, nameOf, renderRecipeTree, searchItemsByName } from '@gw2-ai/core';
+import { buildRecipeTree } from '@gw2kit/recipes';
 import { breakEvenPrice, flipProfit } from './fees.js';
 import { checkParams, compactJson, normalizeApiPath, truncate } from './util.js';
 
@@ -341,7 +340,7 @@ export async function recipeTree(
   expandAll: boolean,
   vendors = true,
 ): Promise<string> {
-  const tree = await buildRecipeTree(client, id, quantity, { wiki, vendors });
+  const tree = await buildRecipeTree(client, id, quantity, { wiki, vendors, vendorCurrency: DEFAULT_VENDOR_CURRENCY });
   return renderRecipeTree(tree, { expandAll });
 }
 

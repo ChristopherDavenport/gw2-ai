@@ -8,14 +8,15 @@ import {
   type Item,
   type Permission,
   type TokenInfo,
-  type WikiClient,
-} from '@gw2-ai/client';
+} from '@gw2kit/client';
+import { buildRecipeTree } from '@gw2kit/recipes';
+import type { WikiClient } from '@gw2kit/wiki';
 import {
   ACCOUNT,
+  DEFAULT_VENDOR_CURRENCY,
   CharacterNotFoundError,
   SECTIONS,
   TOKEN_TTL,
-  buildRecipeTree,
   collectHoldings,
   createContext,
   fetchCharacter,
@@ -201,7 +202,7 @@ export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: 
   for (const h of held.holdings.values()) have.set(h.id, (have.get(h.id) ?? 0) + h.count);
   for (const m of mats) if (m.count > 0) have.set(m.id, (have.get(m.id) ?? 0) + m.count);
 
-  const tree = await buildRecipeTree(client, itemId, quantity, { have, wiki });
+  const tree = await buildRecipeTree(client, itemId, quantity, { have, wiki, vendorCurrency: DEFAULT_VENDOR_CURRENCY });
   const md = renderRecipeTree(tree, {
     title: `Shopping list: ${num(quantity)} × ${tree.name} (${itemId})`,
     raw: false,

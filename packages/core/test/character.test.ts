@@ -1,4 +1,4 @@
-import { Gw2Client, RateLimiter } from '@gw2-ai/client';
+import { Gw2Client, RateLimiter } from '@gw2kit/client';
 import { describe, expect, it } from 'vitest';
 import { CharacterNotFoundError, buildReport, fetchCharacter, renderCharacter } from '../src/index.js';
 

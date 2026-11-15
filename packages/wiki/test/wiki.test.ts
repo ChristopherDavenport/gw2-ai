@@ -1,6 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { RateLimiter, WikiClient } from '../src/index.js';
+import { RateLimiter } from '@gw2kit/client';
+import { WikiClient } from '../src/index.js';
 
 // Real /api.php?action=ask response for outputs 19674 (Gift of Mastery) and 19675 (Mystic Clover).
 const FIXTURE = readFileSync(new URL('./fixtures/wiki-mystic-forge.json', import.meta.url), 'utf8');

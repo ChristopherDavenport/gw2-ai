@@ -1,4 +1,4 @@
-import { Gw2Client, RateLimiter } from '@gw2-ai/client';
+import { Gw2Client, RateLimiter } from '@gw2kit/client';
 import { describe, expect, it } from 'vitest';
 import { buildReport, fmt } from '../src/index.js';
 

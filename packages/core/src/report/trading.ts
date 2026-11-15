@@ -1,4 +1,4 @@
-import type { CommerceCompletedTransaction } from '@gw2-ai/client';
+import type { CommerceCompletedTransaction } from '@gw2kit/client';
 import { nameOf } from '../catalog.js';
 import { coins, day, num, table } from '../format.js';
 import { ACCOUNT, type ReportSection } from './context.js';

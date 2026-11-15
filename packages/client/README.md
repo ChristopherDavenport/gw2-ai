@@ -1,13 +1,13 @@
-# @gw2-ai/client
+# @gw2kit/client
 
-A typed client for the [Guild Wars 2 API](https://wiki.guildwars2.com/wiki/API:Main). Every `/v2` route is in its route table, so the path, path parameters, query parameters and response type are checked at compile time. The API key is attached only to routes that need it. No runtime dependencies; works in Node 22+ and browsers.
+A typed client for the [Guild Wars 2 API](https://wiki.guildwars2.com/wiki/API:Main). Every `/v2` route is in its route table, so the path, path parameters, query parameters and response type are checked at compile time. The API key is attached only to routes that need it. No runtime dependencies; works in Node 22+ and browsers. For wiki data (Mystic Forge recipes, vendor offers) see [`@gw2kit/wiki`](https://www.npmjs.com/package/@gw2kit/wiki); for recipe trees, [`@gw2kit/recipes`](https://www.npmjs.com/package/@gw2kit/recipes).
 
 ```sh
-npm install @gw2-ai/client
+npm install @gw2kit/client
 ```
 
 ```ts
-import { Gw2Client } from '@gw2-ai/client';
+import { Gw2Client } from '@gw2kit/client';
 
 const gw2 = new Gw2Client({ apiKey: process.env.GW2_API_KEY });
 
@@ -43,7 +43,7 @@ gw2.get('/v2/wvw/matches/stats/:id/teams/:team/top/kdr', { path: { id: '1-1', te
 - **Schema version:** every request pins `?v=2025-08-29T01:00:00.000Z`, the version the types describe.
 - **Escape hatch:** `gw2.raw('/v2/some/path')` returns `unknown` for anything the table doesn't cover.
 
-Also exported: `WikiClient` (search, plain-text pages and Semantic MediaWiki queries on wiki.guildwars2.com), `ROUTES` (runtime metadata per route: auth, permissions, language, bulk mode), `missingPermissions(granted, route)`, `looksLikeApiKey`, and every response type.
+Also exported: `ROUTES` (runtime metadata per route: auth, permissions, language, bulk mode), `missingPermissions(granted, route)`, `looksLikeApiKey`, and every response type.
 
 ## How the types are checked
 

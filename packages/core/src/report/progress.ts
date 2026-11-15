@@ -1,4 +1,4 @@
-import type { AccountWizardsVaultPeriod, AccountWizardsVaultSpecial } from '@gw2-ai/client';
+import type { AccountWizardsVaultPeriod, AccountWizardsVaultSpecial } from '@gw2kit/client';
 import { num, pct, table, titleCase } from '../format.js';
 import { ACCOUNT, type ReportSection } from './context.js';
 

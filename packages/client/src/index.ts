@@ -10,7 +10,7 @@ export {
 } from './client.js';
 export { Gw2ApiError } from './errors.js';
 export { MemoryCache, TTL, type CacheStore } from './cache.js';
-export { RateLimiter } from './rate-limit.js';
+export { RateLimiter, sleep } from './rate-limit.js';
 export {
   ROUTES,
   matchRoute,
@@ -33,19 +33,6 @@ export type {
   RouteSpec,
 } from './spec.js';
 export { ALL_PERMISSIONS, PERMISSION_HELP, looksLikeApiKey, missingPermissions } from './permissions.js';
-export {
-  WikiClient,
-  WIKI_BASE,
-  pageUrl,
-  type MysticForgeIngredient,
-  type MysticForgeRecipe,
-  type VendorCaps,
-  type VendorCost,
-  type VendorOffer,
-  type WikiClientOptions,
-  type WikiPage,
-  type WikiSearchHit,
-} from './wiki.js';
 export type * from './types/common.js';
 export type * from './types/account.js';
 export type * from './types/characters.js';

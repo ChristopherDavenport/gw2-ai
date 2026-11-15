@@ -25,18 +25,30 @@ importers:
 
   packages/core:
     dependencies:
-      '@gw2-ai/client':
+      '@gw2kit/client':
         specifier: workspace:*
         version: link:../client
+      '@gw2kit/recipes':
+        specifier: workspace:*
+        version: link:../recipes
+      '@gw2kit/wiki':
+        specifier: workspace:*
+        version: link:../wiki
 
   packages/mcp-account:
     dependencies:
-      '@gw2-ai/client':
-        specifier: workspace:*
-        version: link:../client
       '@gw2-ai/core':
         specifier: workspace:*
         version: link:../core
+      '@gw2kit/client':
+        specifier: workspace:*
+        version: link:../client
+      '@gw2kit/recipes':
+        specifier: workspace:*
+        version: link:../recipes
+      '@gw2kit/wiki':
+        specifier: workspace:*
+        version: link:../wiki
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.6.7)
@@ -46,12 +58,18 @@ importers:
 
   packages/mcp-data:
     dependencies:
-      '@gw2-ai/client':
-        specifier: workspace:*
-        version: link:../client
       '@gw2-ai/core':
         specifier: workspace:*
         version: link:../core
+      '@gw2kit/client':
+        specifier: workspace:*
+        version: link:../client
+      '@gw2kit/recipes':
+        specifier: workspace:*
+        version: link:../recipes
+      '@gw2kit/wiki':
+        specifier: workspace:*
+        version: link:../wiki
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.6.7)
@@ -61,12 +79,12 @@ importers:
 
   packages/mcp-wiki:
     dependencies:
-      '@gw2-ai/client':
-        specifier: workspace:*
-        version: link:../client
       '@gw2-ai/core':
         specifier: workspace:*
         version: link:../core
+      '@gw2kit/wiki':
+        specifier: workspace:*
+        version: link:../wiki
       '@modelcontextprotocol/sdk':
         specifier: 1.32.2
         version: 1.32.2(zod@4.6.7)
@@ -74,14 +92,29 @@ importers:
         specifier: 4.6.7
         version: 4.6.7
 
+  packages/recipes:
+    dependencies:
+      '@gw2kit/client':
+        specifier: workspace:*
+        version: link:../client
+      '@gw2kit/wiki':
+        specifier: workspace:*
+        version: link:../wiki
+
+  packages/wiki:
+    dependencies:
+      '@gw2kit/client':
+        specifier: workspace:*
+        version: link:../client
+
   site:
     dependencies:
-      '@gw2-ai/client':
-        specifier: workspace:*
-        version: link:../packages/client
       '@gw2-ai/core':
         specifier: workspace:*
         version: link:../packages/core
+      '@gw2kit/client':
+        specifier: workspace:*
+        version: link:../packages/client
       dompurify:
         specifier: 3.4.18
         version: 3.4.18

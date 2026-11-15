@@ -1,4 +1,4 @@
-import type { Gw2Client, Item, ItemInfixUpgrade } from '@gw2-ai/client';
+import type { Gw2Client, Item, ItemInfixUpgrade } from '@gw2kit/client';
 
 /** Name for an id, falling back to "#id" when the lookup missed. */
 export function nameOf<K>(map: ReadonlyMap<K, { name: string }>, id: K): string {

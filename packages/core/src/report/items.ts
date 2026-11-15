@@ -1,4 +1,4 @@
-import type { AccountMaterial, CommercePrice, InventorySlot, Item } from '@gw2-ai/client';
+import type { AccountMaterial, CommercePrice, InventorySlot, Item } from '@gw2kit/client';
 import { byId, nameOf } from '../catalog.js';
 import { coins, inlineCounts, num, table } from '../format.js';
 import { ACCOUNT, type ReportContext, type ReportSection } from './context.js';

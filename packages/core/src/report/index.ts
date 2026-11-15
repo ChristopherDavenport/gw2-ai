@@ -1,4 +1,4 @@
-import { missingPermissions, type Gw2Client, type TokenInfo } from '@gw2-ai/client';
+import { missingPermissions, type Gw2Client, type TokenInfo } from '@gw2kit/client';
 import { fetchCharacter, renderCharacter, type CharacterOptions } from '../character.js';
 import { coins, text } from '../format.js';
 import { characters, overview, wallet } from './account.js';

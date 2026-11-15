@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { Gw2Client, WikiClient } from '@gw2-ai/client';
+import { Gw2Client } from '@gw2kit/client';
+import { WikiClient } from '@gw2kit/wiki';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { z } from 'zod';

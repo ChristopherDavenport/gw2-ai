@@ -1,4 +1,4 @@
-import { TTL, type Gw2Client, type Permission } from '@gw2-ai/client';
+import { TTL, type Gw2Client, type Permission } from '@gw2kit/client';
 
 export interface ReportOptions {
   /** Price items at trading post buy-order prices. Costs extra requests. */

@@ -1,12 +1,12 @@
 name: Release
 
-# Publishes @gw2-ai/client, core and the three MCP servers to npm when a
-# version tag (v0.1.0, ...) is pushed. Every package's version must match the
-# tag, and .claude-plugin/plugin.json must pin the same version for the
-# servers; the check step enforces both.
+# Publishes the @gw2kit libraries (client, wiki, recipes), @gw2-ai/core and
+# the three MCP servers to npm when a version tag (v0.1.0, ...) is pushed.
+# Every package's version must match the tag, and .claude-plugin/plugin.json
+# must pin the same version for the servers; the check step enforces both.
 #
-# Needs the NPM_TOKEN repository secret (an npm automation token with publish
-# rights on the @gw2-ai scope).
+# Needs the NPM_TOKEN repository secret: an npm automation token with publish
+# rights on both the @gw2kit and @gw2-ai scopes.
 #
 # npm provenance (--provenance) only works from public repositories. Add it
 # to the publish step, with `id-token: write`, once the repository is public.
@@ -38,7 +38,7 @@ jobs:
         run: |
           version="${GITHUB_REF_NAME#v}"
           status=0
-          for pkg in client core mcp-account mcp-data mcp-wiki; do
+          for pkg in client wiki recipes core mcp-account mcp-data mcp-wiki; do
             v=$(node -p "require('./packages/$pkg/package.json').version")
             if [ "$v" != "$version" ]; then echo "packages/$pkg is $v, tag is $version"; status=1; fi
           done
@@ -53,7 +53,7 @@ jobs:
       - run: pnpm -r test
 
       # pnpm rewrites workspace:* dependencies to the published versions and
-      # publishes in dependency order (client, core, then the servers).
+      # publishes in dependency order (client, wiki, recipes, core, then the servers).
       - name: Publish
         run: pnpm -r --filter "./packages/*" publish --access public --no-git-checks
         env:

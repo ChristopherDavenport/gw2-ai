@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { Gw2ApiError, Gw2Client, WikiClient } from '@gw2-ai/client';
+import { Gw2ApiError, Gw2Client } from '@gw2kit/client';
+import { WikiClient } from '@gw2kit/wiki';
 import { SECTIONS, SECTION_IDS, buildReport } from '@gw2-ai/core';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';

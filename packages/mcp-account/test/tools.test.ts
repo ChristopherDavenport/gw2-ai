@@ -1,4 +1,5 @@
-import { Gw2Client, RateLimiter, WikiClient } from '@gw2-ai/client';
+import { Gw2Client, RateLimiter } from '@gw2kit/client';
+import { WikiClient } from '@gw2kit/wiki';
 import { describe, expect, it } from 'vitest';
 import { character, findItem, keyInfo, shoppingList } from '../src/tools.js';
 

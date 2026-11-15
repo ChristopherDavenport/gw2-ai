@@ -1,7 +1,7 @@
 {
   "name": "@gw2-ai/core",
   "version": "0.1.0",
-  "description": "Account report sections, recipe trees and markdown helpers built on @gw2-ai/client.",
+  "description": "Markdown for AI assistants built on @gw2kit: the Guild Wars 2 account report, character pages, recipe-tree rendering and formatting helpers.",
   "keywords": [
     "guild-wars-2",
     "gw2",
@@ -46,6 +46,8 @@
     "test": "vitest run"
   },
   "dependencies": {
-    "@gw2-ai/client": "workspace:*"
+    "@gw2kit/client": "workspace:*",
+    "@gw2kit/recipes": "workspace:*",
+    "@gw2kit/wiki": "workspace:*"
   }
 }
