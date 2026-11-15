@@ -147,4 +147,4 @@ skills/
 
 ## License
 
-MIT. See [LICENSE](LICENSE). Guild Wars 2 is a trademark of ArenaNet; this project is not affiliated with ArenaNet or NCSoft.
+MIT. See [LICENSE](LICENSE). Guild Wars 2 is a trademark of ArenaNet; this project is not affiliated with ArenaNet or NCSoft. The captured wiki responses in `packages/wiki/test/fixtures/` are not MIT: see the README there.
