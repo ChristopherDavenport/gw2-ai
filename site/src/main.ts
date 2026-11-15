@@ -6,7 +6,7 @@ import {
   missingPermissions,
   type TokenInfo,
 } from '@gw2-ai/client';
-import { SECTIONS, TOKEN_TTL, buildReport, type Report, type SectionResult } from '@gw2-ai/core';
+import { SECTIONS, TOKEN_TTL, buildReport, characterSectionId, type Report, type SectionResult } from '@gw2-ai/core';
 import { IdbCache } from './cache-store.js';
 import { reportFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
@@ -53,6 +53,8 @@ const keyStatus = $('key-status');
 
 const reportForm = $<HTMLFormElement>('report-form');
 const sectionList = $('section-list');
+const characterList = $('character-list');
+const characterStatus = $('character-status');
 const optValuation = $<HTMLInputElement>('opt-valuation');
 const optFull = $<HTMLInputElement>('opt-full');
 const generateBtn = $<HTMLButtonElement>('generate');
@@ -103,12 +105,15 @@ function showKey(info: TokenInfo | undefined): void {
   keyName.textContent = info ? `"${info.name}"` : '(not checked)';
   keyPerms.textContent = info ? `· ${info.permissions.join(', ')}` : '';
   renderSections();
+  void loadCharacters();
 }
 
 function showKeyForm(): void {
   keyForm.hidden = false;
   keySaved.hidden = true;
   renderSections();
+  characterList.replaceChildren();
+  setStatus(characterStatus, 'Add an API key to list your characters.');
 }
 
 keyForm.addEventListener('submit', (event) => {
@@ -246,6 +251,60 @@ function renderSections(): void {
   updateGenerate();
 }
 
+// ---- Characters -----------------------------------------------------------
+
+function characterBoxes(): HTMLInputElement[] {
+  return [...characterList.querySelectorAll<HTMLInputElement>('input[type=checkbox]')];
+}
+
+let characterLoad = 0;
+
+async function loadCharacters(): Promise<void> {
+  const load = ++characterLoad;
+  const previous = new Set(characterBoxes().filter((b) => b.checked).map((b) => b.value));
+  characterList.replaceChildren();
+  if (!client || !token) {
+    setStatus(characterStatus, client ? '' : 'Add an API key to list your characters.');
+    return;
+  }
+  const missing = missingPermissions(token.permissions, ['characters']);
+  if (missing.length) {
+    setStatus(characterStatus, 'Needs permission: characters. Create a key with it to include characters.', 'error');
+    return;
+  }
+  setStatus(characterStatus, 'Loading characters...');
+  let names: string[];
+  try {
+    names = await client.ids('/v2/characters', { ttlMs: TTL.account });
+  } catch (err) {
+    if (load === characterLoad) setStatus(characterStatus, `Couldn't list characters: ${describeError(err)}`, 'error');
+    return;
+  }
+  if (load !== characterLoad) return;
+  names.forEach((name, i) => {
+    const id = `char-${i}`;
+    const box = el('input');
+    box.type = 'checkbox';
+    box.id = id;
+    box.value = name;
+    box.checked = previous.has(name);
+    const label = el('label', { className: 'option' });
+    label.htmlFor = id;
+    label.append(box, el('span', {}, el('span', { className: 'option-title', text: name })));
+    characterList.append(el('li', {}, label));
+  });
+  const noBuilds = missingPermissions(token.permissions, ['builds']).length > 0;
+  setStatus(
+    characterStatus,
+    !names.length
+      ? 'No characters on this account.'
+      : noBuilds
+        ? 'The key lacks the builds permission, so templates and gear will be left out; crafting and bags are still included.'
+        : '',
+    noBuilds && names.length ? 'error' : 'info',
+  );
+}
+
 function updateGenerate(): void {
   generateBtn.disabled = generating || !client;
   generateHint.hidden = Boolean(client);
@@ -275,18 +334,23 @@ const STATUS_LABEL: Record<SectionResult['status'] | 'pending', string> = {
 async function generate(): Promise<void> {
   if (!client || generating) return;
   const chosen = sectionBoxes().filter((b) => b.checked && !b.disabled).map((b) => b.value);
-  if (!chosen.length) {
-    setStatus(reportStatus, 'Pick at least one section.', 'error');
+  const characters = characterBoxes().filter((b) => b.checked).map((b) => b.value);
+  const total = chosen.length + characters.length;
+  if (!total) {
+    setStatus(reportStatus, 'Pick at least one section or character.', 'error');
     return;
   }
   generating = true;
   updateGenerate();
-  setStatus(reportStatus, `Generating ${chosen.length} section${chosen.length === 1 ? '' : 's'}...`);
+  setStatus(reportStatus, `Generating ${total} section${total === 1 ? '' : 's'}...`);
 
   const rows = new Map<string, HTMLLIElement>();
   progressList.replaceChildren();
-  for (const id of chosen) {
-    const title = SECTIONS.find((s) => s.id === id)?.title ?? id;
+  const planned = [
+    ...chosen.map((id) => ({ id, title: SECTIONS.find((s) => s.id === id)?.title ?? id })),
+    ...characters.map((name) => ({ id: characterSectionId(name), title: `Character: ${name}` })),
+  ];
+  for (const { id, title } of planned) {
     const row = el('li', {}, el('span', { className: 'progress-title', text: title }), progressBadge('pending'));
     row.dataset.status = 'pending';
     rows.set(id, row);
@@ -298,6 +362,7 @@ async function generate(): Promise<void> {
   try {
     const result = await buildReport(client, {
       sections: chosen,
+      characters,
       valuation: optValuation.checked,
       detail: optFull.checked ? 'full' : 'summary',
       onSection: (r) => {
@@ -420,4 +485,5 @@ tabs.forEach((tab, i) => {
 // ---- Start ----------------------------------------------------------------
 
 renderSections();
+setStatus(characterStatus, 'Add an API key to list your characters.');
 void restoreKey();

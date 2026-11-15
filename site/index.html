@@ -57,7 +57,7 @@
       </section>
 
       <section class="card" aria-labelledby="report-heading">
-        <h2 id="report-heading">2. Choose sections</h2>
+        <h2 id="report-heading">2. Choose what to include</h2>
         <form id="report-form" novalidate>
           <fieldset>
             <legend>Sections to include</legend>
@@ -66,6 +66,15 @@
               <button type="button" id="select-none" class="link">Select none</button>
             </div>
             <ul id="section-list" class="section-list"></ul>
+          </fieldset>
+          <fieldset>
+            <legend>Characters</legend>
+            <p class="hint" id="character-hint">
+              Add a character's build and equipment templates, crafting and bags. To set up one character, pick it here
+              and select no sections above.
+            </p>
+            <ul id="character-list" class="section-list"></ul>
+            <p id="character-status" class="status" role="status" aria-live="polite"></p>
           </fieldset>
           <fieldset>
             <legend>Options</legend>

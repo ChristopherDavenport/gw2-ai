@@ -15,9 +15,9 @@ Claude Code: `claude mcp add --scope user gw2-account -- npx -y @gw2-ai/mcp-acco
 ## Tools
 
 - `gw2_key_info`: the key's name and permissions, and which report sections they allow.
-- `gw2_account_report`: a markdown report of chosen sections (overview, wallet, characters, wizards-vault, resets, items, materials, trading-post, achievements, legendary-armory, unlocks), optionally valued at trading post prices.
+- `gw2_account_report`: a markdown report of chosen sections (overview, wallet, characters, wizards-vault, resets, items, materials, trading-post, achievements, legendary-armory, unlocks), optionally valued at trading post prices. `characters` adds a full section for each named character.
 - `gw2_find_item`: where an item is held: bank, shared slots, each character, material storage, legendary armory.
-- `gw2_character`: one character in detail: build with trait and skill names, equipment with stats, crafting, bags.
+- `gw2_character`: one character in detail: every build template (trait and skill names) and equipment template (stats, runes, sigils, infusions, PvP gear) with the active ones marked, crafting, bags. `templates: "active"` limits it to the templates in use.
 - `gw2_shopping_list`: a crafting tree for an item minus what the account already holds, with the rest priced.
 - `gw2_account_get`: raw JSON from any authenticated account route (allowlisted paths only).
 

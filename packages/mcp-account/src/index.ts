@@ -101,12 +101,23 @@ export function createServer(): McpServer {
           .default('summary')
           .describe('summary: top rows in tables, the rest as compact lines. full: every row in tables (much longer).'),
         max_rows: z.number().int().min(5).max(1000).default(200).describe('Max rows in long tables when detail is full.'),
+        characters: z
+          .array(z.string().min(1).max(100))
+          .max(20)
+          .optional()
+          .describe('Exact character names to add a "Character: <name>" section for, with every build and equipment template. Prefer gw2_character for a single character.'),
       },
       annotations: READ_ONLY,
     },
-    ({ sections, valuation, detail, max_rows }) =>
+    ({ sections, valuation, detail, max_rows, characters }) =>
       withClient(async (c) => {
-        const report = await buildReport(c, { ...(sections ? { sections } : {}), valuation, detail, maxRows: max_rows });
+        const report = await buildReport(c, {
+          ...(sections ? { sections } : {}),
+          ...(characters ? { characters } : {}),
+          valuation,
+          detail,
+          maxRows: max_rows,
+        });
         return report.markdown;
       }),
   );
@@ -138,14 +149,21 @@ export function createServer(): McpServer {
     {
       title: 'Character details',
       description:
-        'One character in detail: profession, level, race, playtime, crafting disciplines; active build (specializations with chosen trait names, heal/utility/elite skill names, legends or pets); ' +
-        'equipped gear (item, rarity, stat set such as Berserker\'s, runes/sigils/infusions); and bag usage. ' +
-        'Use for build checks, gear audits, "what is my X wearing". The name is case-sensitive; an unknown name returns the list of characters. ' +
-        'Needs `characters`; `builds` adds build and gear, `inventories` adds bags (missing ones are reported). Cost: ~6-10 API calls.',
-      inputSchema: { name: z.string().min(1).max(100).describe('Exact character name.') },
+        'One character in detail: profession, level, race, playtime, crafting disciplines; every build template (specializations with chosen trait names, heal/utility/elite skill names, legends or pets) ' +
+        'and every equipment template (item, rarity, stat set such as Berserker\'s, runes/sigils/infusions, PvP amulet/rune/sigils), with the active ones marked; and bag usage. ' +
+        'Templates identical to an earlier one are shown as "Same ... as template N". ' +
+        'Use for setting up or reviewing a character, build checks, gear audits, "what is my X wearing". The name is case-sensitive; an unknown name returns the list of characters. ' +
+        'Needs `characters`; `builds` adds templates, `inventories` adds bags (missing ones are reported). Cost: ~6-10 API calls.',
+      inputSchema: {
+        name: z.string().min(1).max(100).describe('Exact character name.'),
+        templates: z
+          .enum(['all', 'active'])
+          .default('all')
+          .describe('all: every build and equipment template. active: only the ones in use (shorter).'),
+      },
       annotations: READ_ONLY,
     },
-    ({ name }) => withClient((c) => tools.character(c, name)),
+    ({ name, templates }) => withClient((c) => tools.character(c, name, templates)),
   );
 
   server.registerTool(

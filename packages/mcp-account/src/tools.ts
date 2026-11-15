@@ -4,8 +4,6 @@ import {
   PERMISSION_HELP,
   missingPermissions,
   type Character,
-  type CharacterBuild,
-  type CharacterEquipmentItem,
   type Gw2Client,
   type Item,
   type Permission,
@@ -13,19 +11,22 @@ import {
 } from '@gw2-ai/client';
 import {
   ACCOUNT,
+  CharacterNotFoundError,
   SECTIONS,
   TOKEN_TTL,
   buildRecipeTree,
   collectHoldings,
   createContext,
+  fetchCharacter,
   fmt,
-  infixUpgrade,
   nameOf,
+  renderCharacter,
+  type CharacterOptions,
   renderRecipeTree,
 } from '@gw2-ai/core';
 import { accountPath, checkParams, compactJson } from './paths.js';
 
-const { day, hours, num, table, text } = fmt;
+const { num, table, text } = fmt;
 
 function tokenInfo(client: Gw2Client): Promise<TokenInfo> {
   return client.get('/v2/tokeninfo', { ttlMs: TOKEN_TTL });
@@ -34,7 +35,7 @@ function tokenInfo(client: Gw2Client): Promise<TokenInfo> {
 /** What each tool needs, for gw2_key_info and permission errors. */
 export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional: Permission[]; note: string }> = {
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
-  gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment, inventories adds bags' },
+  gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
   gw2_shopping_list: { required: ['inventories'], optional: ['characters'], note: 'characters adds character bags to the holdings' },
 };
 
@@ -169,166 +170,19 @@ export async function findItem(client: Gw2Client, query: string | undefined, ite
 
 // ---------------------------------------------------------------- character
 
-const SLOT_ORDER = [
-  'Helm', 'Shoulders', 'Coat', 'Gloves', 'Leggings', 'Boots',
-  'WeaponA1', 'WeaponA2', 'WeaponB1', 'WeaponB2',
-  'Backpack', 'Accessory1', 'Accessory2', 'Amulet', 'Ring1', 'Ring2', 'Relic',
-  'HelmAquatic', 'WeaponAquaticA', 'WeaponAquaticB',
-  'Sickle', 'Axe', 'Pick', 'PowerCore', 'SensoryArray', 'ServiceChip', 'FishingRod', 'FishingBait', 'FishingLure',
-];
-
-function slotRank(slot: string | undefined): number {
-  const i = SLOT_ORDER.indexOf(slot ?? '');
-  return i < 0 ? SLOT_ORDER.length : i;
-}
-
-export async function character(client: Gw2Client, name: string): Promise<string> {
-  const perms = new Set(await requirePermissions(client, 'gw2_character'));
+export async function character(client: Gw2Client, name: string, templates: CharacterOptions['templates'] = 'all'): Promise<string> {
+  const perms = await requirePermissions(client, 'gw2_character');
   let ch: Character;
   try {
-    ch = await client.get('/v2/characters/:id', { path: { id: name.trim() }, ...ACCOUNT });
+    ch = await fetchCharacter(client, name);
   } catch (err) {
-    if (err instanceof Gw2ApiError && err.status === 404) {
-      const names = await client.ids('/v2/characters', ACCOUNT).catch(() => []);
-      return `No character named "${text(name)}" on this account. Characters: ${names.map(text).join(', ') || '(none visible)'}. Names are case-sensitive.`;
+    if (err instanceof CharacterNotFoundError) {
+      return `No character named "${text(name)}" on this account. Characters: ${err.names.map(text).join(', ') || '(none visible)'}. Names are case-sensitive.`;
     }
     throw err;
   }
-
-  const out: string[] = [`# ${text(ch.name)}`, ''];
-  const missing: string[] = [];
-  if (!perms.has('builds')) missing.push('`builds` (active build and equipment)');
-  if (!perms.has('inventories')) missing.push('`inventories` (bags)');
-
-  // Core info.
-  const [guild, title] = await Promise.all([
-    ch.guild ? client.get('/v2/guild/:id', { path: { id: ch.guild } }).catch(() => undefined) : undefined,
-    ch.title ? client.one('/v2/titles', ch.title).catch(() => undefined) : undefined,
-  ]);
-  out.push(
-    `- **Profession:** ${ch.profession} · **Level:** ${ch.level} · **Race:** ${ch.race} (${ch.gender})`,
-    `- **Played:** ${hours(ch.age)} · **Deaths:** ${num(ch.deaths)} · **Created:** ${day(ch.created)}`,
-  );
-  if (guild) out.push(`- **Representing:** ${text(guild.name)} \\[${text(guild.tag)}\\]`);
-  if (title) out.push(`- **Title:** ${text(title.name)}`);
-  if (missing.length) out.push(`- **Not shown:** the API key lacks ${missing.join(' and ')}.`);
-
-  if (ch.crafting.length) {
-    out.push('', '## Crafting', '', table(['Discipline', 'Rating', 'Active'], ch.crafting.map((c) => [c.discipline, c.rating, c.active ? 'yes' : 'no'])));
-  }
-
-  const build = ch.build_tabs?.find((t) => t.is_active) ?? ch.build_tabs?.find((t) => t.tab === ch.active_build_tab);
-  if (build) out.push('', ...(await renderBuild(client, build.build, build.tab)));
-
-  const equipped = (ch.equipment ?? []).filter(
-    (e) =>
-      (!e.location || e.location.startsWith('Equipped')) &&
-      (!e.tabs || ch.active_equipment_tab === undefined || e.tabs.includes(ch.active_equipment_tab)),
-  );
-  if (equipped.length) out.push('', ...(await renderEquipment(client, equipped, ch.active_equipment_tab)));
-
-  if (ch.bags) out.push('', ...(await renderBags(client, ch)));
-  return out.join('\n');
-}
-
-async function renderBuild(client: Gw2Client, build: CharacterBuild, tab: number): Promise<string[]> {
-  const specIds = build.specializations.map((s) => s.id).filter((x): x is number => !!x);
-  const traitIds = build.specializations.flatMap((s) => s.traits).filter((x): x is number => !!x);
-  const sk = build.skills;
-  const skillIds = sk ? [sk.heal, ...sk.utilities, sk.elite].filter((x): x is number => !!x) : [];
-  const legendIds = (build.legends ?? []).filter((x): x is string => !!x);
-  const petIds = (build.pets?.terrestrial ?? []).filter((x): x is number => !!x);
-
-  const [specs, traits, legends, pets] = await Promise.all([
-    client.many('/v2/specializations', specIds),
-    client.many('/v2/traits', traitIds),
-    client.many('/v2/legends', legendIds),
-    client.many('/v2/pets', petIds),
-  ]);
-  const legendSkillIds = [...legends.values()].map((l) => l.swap).filter(Boolean);
-  const skills = await client.many('/v2/skills', [...skillIds, ...legendSkillIds]);
-  const skillName = (id: number | null | undefined) => (id ? nameOf(skills, id) : '—');
-
-  const lines = [`## Active build (tab ${tab}${build.name ? `: ${text(build.name)}` : ''})`, ''];
-  const rows = build.specializations
-    .filter((s) => s.id)
-    .map((s) => [
-      `${nameOf(specs, s.id!)}${specs.get(s.id!)?.elite ? ' (elite)' : ''}`,
-      s.id,
-      s.traits.map((t) => (t ? nameOf(traits, t) : '—')).join(' / '),
-      s.traits.map((t) => t ?? '—').join(', '),
-    ]);
-  lines.push(table(['Specialization', 'Spec id', 'Major traits (adept / master / grandmaster)', 'Trait ids'], rows));
-  if (sk) {
-    lines.push(
-      '',
-      `- **Heal:** ${skillName(sk.heal)} · **Utilities:** ${sk.utilities.map(skillName).join(', ')} · **Elite:** ${skillName(sk.elite)}` +
-        ` (skill ids ${[sk.heal, ...sk.utilities, sk.elite].map((x) => x ?? '—').join(', ')})`,
-    );
-  }
-  if (legendIds.length) {
-    lines.push(`- **Legends:** ${legendIds.map((id) => { const l = legends.get(id); return l ? `${nameOf(skills, l.swap)} (${id})` : id; }).join(', ')}`);
-  }
-  if (petIds.length) lines.push(`- **Pets:** ${petIds.map((id) => `${nameOf(pets, id)} (${id})`).join(', ')}`);
-  return lines;
-}
-
-async function renderEquipment(client: Gw2Client, equipped: CharacterEquipmentItem[], tab: number | undefined): Promise<string[]> {
-  const upgradeIds = equipped.flatMap((e) => [...(e.upgrades ?? []), ...(e.infusions ?? [])]);
-  const items = await client.many('/v2/items', [...equipped.map((e) => e.id), ...upgradeIds]);
-  const statIdOf = (e: CharacterEquipmentItem): number | undefined => {
-    const item = items.get(e.id);
-    return e.stats?.id ?? (item ? infixUpgrade(item)?.id : undefined);
-  };
-  const statIds = new Set<number>();
-  for (const e of equipped) {
-    const id = statIdOf(e);
-    if (id) statIds.add(id);
-  }
-  const stats = await client.many('/v2/itemstats', statIds);
-  const rows = [...equipped]
-    .sort((a, b) => slotRank(a.slot) - slotRank(b.slot))
-    .map((e) => {
-      const item = items.get(e.id);
-      const statId = statIdOf(e);
-      const upgrades = (e.upgrades ?? []).map((u) => nameOf(items, u));
-      const infusions = (e.infusions ?? []).map((u) => nameOf(items, u));
-      const extras = [...upgrades, ...(infusions.length ? [`infusions: ${infusions.join(', ')}`] : [])].join('; ');
-      return [e.slot ?? '—', item?.name ?? `#${e.id}`, e.id, item?.rarity, statId ? nameOf(stats, statId) : '—', extras || '—'];
-    });
-  return [
-    `## Equipment${tab !== undefined ? ` (tab ${tab})` : ''}`,
-    '',
-    table(['Slot', 'Item', 'Item id', 'Rarity', 'Stats', 'Upgrades / infusions'], rows),
-  ];
-}
-
-async function renderBags(client: Gw2Client, ch: Character): Promise<string[]> {
-  const bags = (ch.bags ?? []).filter((b) => b !== null);
-  const contents = bags.flatMap((b) => b.inventory.filter((s) => s !== null));
-  const defs = await client.many('/v2/items', [...bags.map((b) => b.id), ...contents.map((s) => s.id)]);
-  const rows = bags.map((b) => {
-    const used = b.inventory.filter((s) => s !== null).length;
-    return [nameOf(defs, b.id), b.id, b.size, used, b.size - used];
-  });
-  const size = bags.reduce((s, b) => s + b.size, 0);
-  const used = contents.length;
-
-  const stacks = new Map<number, number>();
-  for (const s of contents) stacks.set(s.id, (stacks.get(s.id) ?? 0) + s.count);
-  const top = [...stacks]
-    .sort((a, b) => b[1] - a[1])
-    .slice(0, 15)
-    .map(([id, n]) => `${nameOf(defs, id)} ×${num(n)} (${id})`)
-    .join(', ');
-  return [
-    '## Bags',
-    '',
-    `${used} of ${size} slots used (${size - used} free).`,
-    '',
-    table(['Bag', 'Item id', 'Slots', 'Used', 'Free'], rows),
-    ...(top ? ['', `**Largest stacks:** ${top}. Use gw2_find_item to locate a specific item.`] : []),
-  ];
+  const body = await renderCharacter(client, ch, perms, { templates, headingLevel: 2 });
+  return `# ${text(ch.name)}\n\n${body}\n\nUse gw2_find_item to locate a specific item from the bags.`;
 }
 
 // ---------------------------------------------------------------- shopping list

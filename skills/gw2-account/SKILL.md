@@ -20,7 +20,7 @@ If neither is available, say so and offer both options: create a key at https://
    | Question | Tool | Sections / args |
    | --- | --- | --- |
    | "Where is item X?", "do I have X?" | `gw2_find_item` | `{query: "X"}` or `{item_id}` |
-   | One character's gear, build, bags, crafting | `gw2_character` | `{name}` (exact character name; get names from the `characters` section) |
+   | One character's gear, builds, templates, bags, crafting; setting up a character | `gw2_character` | `{name}` (exact character name; get names from the `characters` section). Shows every build and equipment template; `templates: "active"` for only the ones in use |
    | "What should I do today/this week?" | `gw2_account_report` | `wizards-vault`, `resets` |
    | Gold, wallet, currencies | `gw2_account_report` | `wallet` |
    | "How rich am I?" | `gw2_account_report` | `wallet`, `items`, `materials`, `trading-post`, `legendary-armory` |

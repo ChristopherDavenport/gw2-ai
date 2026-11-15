@@ -1,4 +1,5 @@
 import { missingPermissions, type Gw2Client, type TokenInfo } from '@gw2-ai/client';
+import { fetchCharacter, renderCharacter, type CharacterOptions } from '../character.js';
 import { coins, text } from '../format.js';
 import { characters, overview, wallet } from './account.js';
 import { createContext, type Fact, type ReportOptions, type ReportSection, type Totals } from './context.js';
@@ -49,8 +50,20 @@ export interface Report {
 export interface BuildReportOptions extends ReportOptions {
   /** Section ids to include. Defaults to all. */
   sections?: readonly string[];
+  /**
+   * Exact character names to add a full section for: build and equipment
+   * templates, crafting and bags. Needs `characters`; templates need `builds`.
+   */
+  characters?: readonly string[];
+  /** Which templates a character section shows. Default `all`. */
+  templates?: CharacterOptions['templates'];
   /** Called as each section finishes, for progress UIs. */
   onSection?: (result: SectionResult) => void;
+}
+
+/** Section id for one character's details, as used in SectionResult.id. */
+export function characterSectionId(name: string): string {
+  return `character:${name}`;
 }
 
 /**
@@ -66,29 +79,51 @@ export async function buildReport(client: Gw2Client, options: BuildReportOptions
 
   const ctx = createContext(client, options);
   const chosen = SECTIONS.filter((s) => !wanted || wanted.has(s.id));
-  const results = await Promise.all(
-    chosen.map(async (s): Promise<SectionResult> => {
+  const names = [...new Set((options.characters ?? []).map((n) => n.trim()).filter(Boolean))];
+  const detailed: string[] = [];
+  const finish = (result: SectionResult): SectionResult => {
+    options.onSection?.(result);
+    return result;
+  };
+  const results = await Promise.all([
+    ...chosen.map(async (s): Promise<SectionResult> => {
       const missing = missingPermissions(token.permissions, s.permissions);
-      let result: SectionResult;
-      if (missing.length) {
-        const reason = `API key lacks permission: ${missing.join(', ')}`;
-        result = { id: s.id, title: s.title, status: 'skipped', reason, markdown: `_Skipped: ${reason}._` };
-      } else {
-        try {
-          result = { id: s.id, title: s.title, status: 'ok', markdown: await s.render(ctx) };
-        } catch (err) {
-          const reason = err instanceof Error ? err.message : String(err);
-          result = { id: s.id, title: s.title, status: 'error', reason, markdown: `_Failed: ${reason}_` };
-        }
+      if (missing.length) return finish(skipped(s.id, s.title, missing));
+      try {
+        return finish({ id: s.id, title: s.title, status: 'ok', markdown: await s.render(ctx) });
+      } catch (err) {
+        return finish(failed(s.id, s.title, err));
       }
-      options.onSection?.(result);
-      return result;
     }),
-  );
+    ...names.map(async (name): Promise<SectionResult> => {
+      const id = characterSectionId(name);
+      const title = `Character: ${name}`;
+      const missing = missingPermissions(token.permissions, ['characters']);
+      if (missing.length) return finish(skipped(id, title, missing));
+      try {
+        const ch = await fetchCharacter(client, name);
+        const markdown = await renderCharacter(client, ch, token.permissions, { templates: options.templates ?? 'all', headingLevel: 3 });
+        detailed.push(ch.name);
+        return finish({ id, title: `Character: ${ch.name}`, status: 'ok', markdown });
+      } catch (err) {
+        return finish(failed(id, title, err));
+      }
+    }),
+  ]);
 
   const generatedAt = new Date().toISOString();
-  const markdown = renderReport(results, token, generatedAt, glance(ctx.facts, ctx.totals), notIncluded(ctx.omissions));
+  const markdown = renderReport(results, token, generatedAt, glance(ctx.facts, ctx.totals), notIncluded(ctx.omissions, detailed));
   return { markdown, token, sections: results, generatedAt };
+}
+
+function skipped(id: string, title: string, missing: readonly string[]): SectionResult {
+  const reason = `API key lacks permission: ${missing.join(', ')}`;
+  return { id, title, status: 'skipped', reason, markdown: `_Skipped: ${reason}._` };
+}
+
+function failed(id: string, title: string, err: unknown): SectionResult {
+  const reason = err instanceof Error ? err.message : String(err);
+  return { id, title, status: 'error', reason, markdown: `_Failed: ${text(reason)}_` };
 }
 
 /**
@@ -110,10 +145,13 @@ function glance(facts: readonly Fact[], totals: Totals): string[] {
  * rather than "doesn't exist". Section caps come first, then data no section
  * covers. Tool names are for MCP clients; a pasted copy has no tools.
  */
-function notIncluded(omissions: readonly string[]): string[] {
+function notIncluded(omissions: readonly string[], detailed: readonly string[]): string[] {
+  const gear = detailed.length
+    ? `- Equipped gear, build templates and equipment templates are included only for ${detailed.map(text).join(', ')}. Other characters are not unequipped, their data just isn't here (\`gw2_character\` with the name, or pick the character when generating the report).`
+    : "- Equipped gear, build templates and equipment templates are not in this report: characters are not unequipped, the data just isn't here (`gw2_character` with the name, or pick the character when generating the report).";
   return [
     ...omissions.map((o) => `- ${o}.`),
-    '- Equipped gear, build templates and equipment tabs are not in this report: characters are not unequipped, the data just isn\'t here (`gw2_character` with the name).',
+    gear,
     '- Guild storage, homestead decorations, mastery tracks, PvP and WvW stats are not included (`gw2_account_get`).',
     '',
     'If a question depends on something above: with the gw2-account tools, call the one named; with only this text, say it isn\'t in the report and ask the user (a report with full detail has longer tables). Don\'t treat missing data as zero or unstarted.',
@@ -140,9 +178,10 @@ function renderReport(
     '',
     '## Contents',
     '',
-    ...results.map((r) => `- [${r.title}](#${anchor(r.title)})${r.status === 'ok' ? '' : ` (${r.status})`}`),
+    ...results.map((r) => `- [${text(r.title)}](#${anchor(r.title)})${r.status === 'ok' ? '' : ` (${r.status})`}`),
   );
-  const body = results.map((r) => `## ${r.title}\n\n${r.markdown}`);
+  // Character section titles hold player-chosen names, so they are escaped.
+  const body = results.map((r) => `## ${text(r.title)}\n\n${r.markdown}`);
   return [header.join('\n'), ...body].join('\n\n') + '\n';
 }
 

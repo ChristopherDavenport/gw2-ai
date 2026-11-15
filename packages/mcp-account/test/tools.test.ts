@@ -109,12 +109,13 @@ describe('account tools', () => {
     await expect(findItem(setup(['account']).client, 'ecto', undefined, 50)).rejects.toThrow(/needs the `inventories` permission/);
   });
 
-  it('gw2_character shows build, active-tab gear and bags', async () => {
+  it('gw2_character shows build, equipped gear and bags', async () => {
     const md = await character(setup(ALL).client, 'Alice');
     expect(md).toContain('Firebrand (elite)');
     expect(md).toContain('Trait 1 / Trait 2 / Trait 3');
-    expect(md).toContain('**Heal:** Skill 10');
-    expect(md).toContain('| Coat | Zojja\'s Breastplate | 1000 | Ascended | — | Superior Rune of the Scholar |');
+    expect(md).toContain('## Build template 1: Raid (active)');
+    expect(md).toContain('Heal Skill 10 · Utilities Skill 11, —, Skill 12 · Elite Skill 13');
+    expect(md).toContain('| Coat | Zojja\'s Breastplate | 1000 | Ascended | — | Superior Rune of the Scholar | — |');
     expect(md.match(/Zojja/g)).toHaveLength(1);
     expect(md).toContain('1 of 20 slots used');
   });

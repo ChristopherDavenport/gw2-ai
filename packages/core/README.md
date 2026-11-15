@@ -7,6 +7,9 @@ import { Gw2Client } from '@gw2-ai/client';
 import { buildReport } from '@gw2-ai/core';
 
 const report = await buildReport(new Gw2Client({ apiKey }), { sections: ['wallet', 'wizards-vault'] });
+
+// One character's build and equipment templates, crafting and bags, with no account sections:
+const setup = await buildReport(new Gw2Client({ apiKey }), { sections: [], characters: ['Example Name'] });
 console.log(report.markdown);
 ```
 

@@ -62,7 +62,7 @@ For Claude Code without the plugin: `claude mcp add --scope user gw2-data -- npx
 The site is a static page that talks to the GW2 API directly from your browser; nothing goes through a server of ours. Once GitHub Pages is enabled for the repository it is served from `https://christopherdavenport.github.io/gw2-ai/`; locally, run `pnpm dev:site`.
 
 1. Create an API key (see below) and save it on the page.
-2. Pick the report sections you want and generate the report.
+2. Pick the report sections you want, and any characters whose build and equipment templates you want included, then generate the report. To set up a single character, pick only that character.
 3. Copy or download the markdown and paste it into any AI chat. Ask questions about it, or load the skills so the assistant knows how to read it.
 
 The report contains your account name, characters and holdings, so share it only with assistants you trust. It does not contain the API key.
