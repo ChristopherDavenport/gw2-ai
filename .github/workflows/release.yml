@@ -5,11 +5,15 @@ name: Release
 # Every package's version must match the tag, and .claude-plugin/plugin.json
 # must pin the same version for the servers; the check step enforces both.
 #
-# Needs the NPM_TOKEN repository secret: an npm automation token with publish
-# rights on both the @gw2kit and @gw2-ai scopes.
+# Authentication is npm trusted publishing (OIDC): no token is stored. Each
+# package on npmjs.com needs a trusted publisher for this repository and this
+# workflow file (Settings → Trusted publishing → GitHub Actions →
+# ChristopherDavenport/gw2-ai, release.yml). A package has to exist before
+# that can be set, so the first version of each is published by hand after
+# `npm login`.
 #
-# npm provenance (--provenance) only works from public repositories. Add it
-# to the publish step, with `id-token: write`, once the repository is public.
+# npm adds provenance attestations automatically when publishing this way,
+# but only from public repositories.
 
 on:
   push:
@@ -17,6 +21,11 @@ on:
 
 permissions:
   contents: read
+  id-token: write # npm trusted publishing exchanges this OIDC token for a publish credential
+
+env:
+  # Dependency order: each package is published after the ones it depends on.
+  PACKAGES: client wiki recipes core mcp-account mcp-data mcp-wiki
 
 jobs:
   publish:
@@ -32,13 +41,16 @@ jobs:
           cache: pnpm
           registry-url: https://registry.npmjs.org
 
+      # Trusted publishing needs npm 11.5.1 or later; Node 22 ships npm 10.
+      - run: npm install -g npm@^11.5.1
+
       - run: pnpm install --frozen-lockfile
 
       - name: Check versions match the tag
         run: |
           version="${GITHUB_REF_NAME#v}"
           status=0
-          for pkg in client wiki recipes core mcp-account mcp-data mcp-wiki; do
+          for pkg in $PACKAGES; do
             v=$(node -p "require('./packages/$pkg/package.json').version")
             if [ "$v" != "$version" ]; then echo "packages/$pkg is $v, tag is $version"; status=1; fi
           done
@@ -52,9 +64,23 @@ jobs:
       - run: pnpm -r typecheck
       - run: pnpm -r test
 
-      # pnpm rewrites workspace:* dependencies to the published versions and
-      # publishes in dependency order (client, wiki, recipes, core, then the servers).
+      # pnpm pack turns workspace:* dependencies into the real versions; npm
+      # publishes the tarballs, since npm is what implements trusted publishing.
+      - name: Pack
+        run: |
+          for pkg in $PACKAGES; do
+            pnpm --dir "packages/$pkg" pack --pack-destination "$RUNNER_TEMP/pack/$pkg"
+          done
+
+      # Versions already on npm are skipped, so a run that failed partway can be re-run.
       - name: Publish
-        run: pnpm -r --filter "./packages/*" publish --access public --no-git-checks
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          for pkg in $PACKAGES; do
+            name=$(node -p "require('./packages/$pkg/package.json').name")
+            version=$(node -p "require('./packages/$pkg/package.json').version")
+            if npm view "$name@$version" version >/dev/null 2>&1; then
+              echo "$name@$version is already published; skipping"
+              continue
+            fi
+            npm publish "$RUNNER_TEMP/pack/$pkg"/*.tgz --access public
+          done
