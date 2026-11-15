@@ -1,0 +1,20 @@
+{
+  "name": "gw2-ai",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.3",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm -r typecheck",
+    "dev:site": "pnpm --filter @gw2-ai/site dev"
+  },
+  "devDependencies": {
+    "@types/node": "^26.6.6",
+    "typescript": "7.0.2",
+    "vitest": "5.1.0"
+  }
+}

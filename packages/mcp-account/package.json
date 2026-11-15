@@ -1,0 +1,19 @@
+{
+  "name": "@gw2-ai/mcp-account",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "bin": { "gw2-mcp-account": "./dist/index.js" },
+  "files": ["dist"],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "vitest run --passWithNoTests",
+    "start": "node dist/index.js"
+  },
+  "dependencies": {
+    "@gw2-ai/core": "workspace:*",
+    "@modelcontextprotocol/sdk": "1.32.2",
+    "zod": "4.6.7"
+  }
+}

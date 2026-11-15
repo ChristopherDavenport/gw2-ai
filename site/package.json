@@ -1,0 +1,23 @@
+{
+  "name": "@gw2-ai/site",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "tsc --noEmit -p tsconfig.json && vite build",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "test": "vitest run --passWithNoTests",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@gw2-ai/core": "workspace:*",
+    "dompurify": "3.4.18",
+    "marked": "18.2.0"
+  },
+  "devDependencies": {
+    "vite": "8.3.8",
+    "fake-indexeddb": "^6.0.0",
+    "happy-dom": "^20.0.0"
+  }
+}
