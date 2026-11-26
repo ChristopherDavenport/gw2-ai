@@ -98,3 +98,27 @@ describe('planSales with conversions', () => {
     expect(planSales([ore], { conversions: { recipes: [ingot], market: market() }, keep: ['Ore'] }).lines).toEqual([]);
   });
 });
+
+describe('one craft feeding another', () => {
+  const prices = market({ 4: { name: 'Plate', buy: 2000, sell: 2200 }, 5: { name: 'Wood', buy: 300, sell: 330 } });
+  const plate = { kind: 'craft' as const, output: 4, count: 1, inputs: [[5, 2], [2, 1]] as const };
+  const ore: Sellable = { id: 1, name: 'Ore', count: 40, material: true, vendor: 0, buy: 100, sell: 110 };
+  const wood: Sellable = { id: 5, name: 'Wood', count: 20, material: true, vendor: 0, buy: 300, sell: 330 };
+
+  it('uses what was just made instead of buying it, as one job', () => {
+    const [c, ...rest] = planConversions(new Map([[1, 40], [5, 20]]), { recipes: [ingot, plate], market: prices }, { minGain: 0 });
+    expect(rest).toEqual([]);
+    expect(c).toMatchObject({ name: 'Plate', buys: [], first: [{ name: 'Ingot', made: 20, used: 10, sold: 10 }] });
+    const sales = planSales([{ ...ore, count: 400 }, { ...wood, count: 200 }], { conversions: { recipes: [ingot, plate], market: prices } });
+    expect(sales.lines).toHaveLength(1);
+    expect(renderSales(sales)).toContain('first make 200 × Ingot from 400 × Ore (use 100 here, sell the other 100); then Craft 100 × Plate');
+  });
+});
+
+describe('trimmed sales', () => {
+  it('says when a line was cut to what the target needed', () => {
+    const bolt: Sellable = { id: 1, name: 'Bolt', count: 226, material: true, vendor: 0, buy: 200, sell: 210 };
+    expect(renderSales(planSales([bolt], { target: 15_000 }))).toContain('(trimmed to cover the shortfall)');
+    expect(renderSales(planSales([bolt]))).not.toContain('trimmed');
+  });
+});

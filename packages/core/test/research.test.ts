@@ -109,3 +109,16 @@ describe('parseSources', () => {
     ]);
   });
 });
+
+describe('stale wiki lines', () => {
+  it('drops historical and discontinued sources and footnotes', () => {
+    const section = [
+      'Contained in',
+      '- Old Cache (guaranteed, historical)',
+      '- Gone Box (chance, discontinued)',
+      '- Live Chest (chance)',
+      '- ^ https://old.reddit.com/r/Guildwars2/comments/x/',
+    ].join('\n');
+    expect(parseSources(section)).toEqual([{ kind: 'contained', name: 'Live Chest', detail: 'chance' }]);
+  });
+});

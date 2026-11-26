@@ -70,6 +70,8 @@ export interface SaleLine {
   revenue: number;
   /** `revenue` as a share of what listing the same units at the lowest price would bring. */
   kept: number;
+  /** Only part of the stack, as much as the target still needed. */
+  trimmed?: boolean;
   /** Set when the thing sold has to be crafted or promoted first; `revenue` is net of what it buys. */
   convert?: Conversion;
   /** Set when the thing sold is crafted from a currency path; `revenue` is the profit. */
@@ -173,9 +175,13 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
       )
     : [];
   const converted = new Map<number, number>();
-  for (const c of conversions) converted.set(c.output, (converted.get(c.output) ?? 0) + c.units);
+  const sells = (id: number, units: number) => converted.set(id, (converted.get(id) ?? 0) + units);
+  for (const c of conversions) {
+    sells(c.output, c.units);
+    for (const f of c.first ?? []) sells(f.output, f.sold);
+  }
   const used = new Map<number, number>();
-  for (const u of conversions.flatMap((c) => c.uses)) used.set(u.id, (used.get(u.id) ?? 0) + u.count);
+  for (const u of conversions.flatMap((c) => [...c.uses, ...(c.first ?? []).flatMap((f) => f.uses)])) used.set(u.id, (used.get(u.id) ?? 0) + u.count);
 
   const candidates: { item?: Sellable; line: SaleLine }[] = spare.flatMap(({ item: held, units }) => {
     // Buy orders a converted sale of the same item fills can't be filled twice.
@@ -256,7 +262,8 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
     if (last?.item && raised > target) {
       const wanted = last.line.revenue - (raised - target);
       const units = unitsFor(last.item, last.line.quantity, wanted, method);
-      chosen[chosen.length - 1] = { item: last.item, line: { ...last.line, ...quote(last.item, units, method)! } };
+      const trimmed = units < last.line.quantity;
+      chosen[chosen.length - 1] = { item: last.item, line: { ...last.line, ...quote(last.item, units, method)!, ...(trimmed ? { trimmed } : {}) } };
     }
   }
 
@@ -367,15 +374,23 @@ function disciplineText(c: Conversion): string {
   return c.rating ? `${names} ${c.rating}` : names;
 }
 
+const usesText = (uses: Conversion['uses']) => uses.map((u) => `${num(u.count)} × ${text(u.name)}`).join(', ');
+
 function conversionText(c: Conversion, how: string): string {
-  const uses = c.uses.map((u) => `${num(u.count)} × ${text(u.name)}`).join(', ');
+  const first = (c.first ?? [])
+    .map(
+      (f) =>
+        `first make ${num(f.made)} × ${text(f.name)} from ${usesText(f.uses)} (use ${num(f.used)} here${f.sold ? `, sell the other ${num(f.sold)}` : ''}); then `,
+    )
+    .join('');
+  const uses = [usesText(c.uses), ...(c.first ?? []).map((f) => `${num(f.used)} × ${text(f.name)} just made`)].join(', ');
   const verb =
     c.kind === 'craft'
       ? `Craft ${num(c.units)} × ${text(c.name)} (${disciplineText(c)})`
       : `Promote in the Mystic Forge ${num(c.crafts)} times for about ${num(c.units)} × ${text(c.name)} (random)`;
   const bought = c.buys.length ? `, buying ${c.buys.map((b) => `${num(b.count)} × ${text(b.name)} (${coins(b.cost)})`).join(', ')}` : '';
   const shards = c.spiritShards ? `, ${num(c.spiritShards)} Spirit Shards for stones` : '';
-  return `${verb} from ${uses}${bought}${shards}; sell ${how}: ${coins(c.revenue)}, ${coins(c.gain)} more than selling the materials`;
+  return `${first}${verb} from ${uses}${bought}${shards}; sell ${how}: ${coins(c.revenue)}, ${coins(c.gain)} more than selling the materials`;
 }
 
 const HOW: Record<SaleLine['how'], string> = { instant: 'to buy orders', list: 'listed', vendor: 'to a vendor' };
@@ -423,7 +438,8 @@ export function renderSales(sales: SalePlan, options: { heading?: string; delive
     if (l.convert) return `- [ ] ${conversionText(l.convert, HOW[l.how])}`;
     const kept = l.how === 'vendor' ? '' : `, ${Math.round(l.kept * 100)}% of listing value`;
     const part = l.quantity < l.held ? ` of ${num(l.held)}` : '';
-    return `- [ ] Sell ${num(l.quantity)}${part} × ${text(l.name)} ${HOW[l.how]}: ${coins(l.revenue)}${l.how === 'list' ? '' : kept}`;
+    const why = l.trimmed ? ' (trimmed to cover the shortfall)' : '';
+    return `- [ ] Sell ${num(l.quantity)}${part} × ${text(l.name)} ${HOW[l.how]}: ${coins(l.revenue)}${l.how === 'list' ? '' : kept}${why}`;
   });
   const rest = sales.lines.filter((l, i) => !listed(l, i));
   if (rest.length) lines.push(`- and ${num(rest.length)} smaller sales worth ${coins(rest.reduce((sum, l) => sum + l.revenue, 0))}`);

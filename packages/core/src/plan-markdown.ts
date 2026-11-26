@@ -405,12 +405,13 @@ function shortages(solved: SolvedPlan): { earn: Map<StepKey, PlanStep>; days: Ma
   for (const s of solved.steps) {
     if (s.count === 0) continue;
     if (s.action === 'earn') earn.set(s.key, s);
+    // Days to wait: today's, and this week's, allowance can be used at once.
     const waits = Math.max(
-      s.perDay ? Math.ceil(s.count / s.perDay) : 0,
-      s.caps?.daily ? Math.ceil(s.times / s.caps.daily) : 0,
-      s.caps?.weekly ? Math.ceil(s.times / s.caps.weekly) * 7 : 0,
+      s.perDay ? Math.ceil(s.count / s.perDay) - 1 : 0,
+      s.caps?.daily ? Math.ceil(s.times / s.caps.daily) - 1 : 0,
+      s.caps?.weekly ? (Math.ceil(s.times / s.caps.weekly) - 1) * 7 : 0,
     );
-    if (waits > 1) days.set(s.key, waits);
+    if (waits > 0) days.set(s.key, waits);
   }
   return { earn, days };
 }
@@ -445,12 +446,12 @@ function goalProgress(plan: CraftingPlan, all: SolvedPlan): string[] {
       .filter((g) => g.days > 0)
       .sort((a, b) => b.days - a.days)
       .slice(0, LISTED_SHORTAGES)
-      .map((g) => `${text(names.get(g.key) ?? g.key)} (${num(g.days)} days)`);
+      .map((g) => `${text(names.get(g.key) ?? g.key)} (${num(g.days)} ${g.days === 1 ? 'day' : 'days'})`);
     before = now;
     return [
       `${i + 1}. ${amount(goal.quantity, goal.name)}: ${gold}, ${coins(now.coin)} up to here${against}.`,
       listed.length ? `   - Still to earn: ${listed.join(', ')}` : '',
-      gates.length ? `   - Waiting on daily or weekly limits: ${gates.join(', ')}` : '',
+      gates.length ? `   - Waiting on daily or weekly limits, if today's and this week's are unused: ${gates.join(', ')}` : '',
     ]
       .filter(Boolean)
       .join('\n');

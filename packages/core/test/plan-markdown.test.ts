@@ -111,3 +111,14 @@ describe('average yields', () => {
     expect(renderPlan(plan, { sections: ['buy'] })).toContain('Averages, not guarantees');
   });
 });
+
+describe('waiting on limits', () => {
+  it('counts only the weeks after this one', () => {
+    const data = swordPlan().data;
+    data.currencies = { 2: 'Karma' };
+    data.vendors = { 3: { url: 'u', offers: [{ quantity: 1, costs: [{ kind: 'Currency', id: 2, name: 'Karma', amount: 1 }], vendors: ['A'], caps: { weekly: 15 } }] } };
+    const gift = (quantity: number) => ({ ...swordPlan(), data, goals: [{ itemId: 3, name: 'Desert Gift', quantity }, { itemId: 2, name: 'Hilt', quantity: 1 }] });
+    expect(renderPlan(gift(7), { sections: ['goals'] })).not.toContain('Waiting on');
+    expect(renderPlan(gift(45), { sections: ['goals'] })).toContain('Desert Gift (14 days)');
+  });
+});
