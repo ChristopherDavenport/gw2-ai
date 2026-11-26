@@ -12,6 +12,6 @@ export { planCurrencies, planReserve, planShortfall, salesForPlan } from './plan
 export { planConversions, promotionRecipes, type Conversion, type ConversionData, type ConversionRecipe, type MarketItem } from './convert.js';
 export { readConversions, type Conversions, type ReadConversionOptions } from './convert-read.js';
 export { PROMOTIONS_AS_OF } from './promotions-data.js';
-export { DEFAULT_PATH_DAYS, DEFAULT_PATH_SHARE, pathCap, planSalesPaths, type CurrencyPath, type PathBinding, type PathOptions, type PathPlan, type PathSale, type SalesPathData } from './sales-paths.js';
+export { DEFAULT_PATH_DAYS, DEFAULT_PATH_SHARE, pathCap, planSalesPaths, type CurrencyPath, type LeftOut, type PathBinding, type PathContents, type PathOptions, type PathPlan, type PathSale, type SalesPathData } from './sales-paths.js';
 export { readSalesPaths } from './sales-paths-read.js';
-export { CURRENCY_PATHS, CURRENCY_PATHS_AS_OF } from './currency-paths-data.js';
+export { CURRENCY_LEFT_OUT, CURRENCY_PATHS, CURRENCY_PATHS_AS_OF } from './currency-paths-data.js';

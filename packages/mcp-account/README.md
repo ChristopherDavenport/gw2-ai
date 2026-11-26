@@ -37,12 +37,15 @@ Claude Code: `claude mcp add --scope user gw2-account -- npx -y @gw2-ai/mcp-acco
 | `everything` | Also gear, consumables and other non-materials. |
 | `craft` | Default true: craft or refine materials first where that raises more than selling them. |
 | `promote` | Default false: also Mystic Forge material promotions. Yields are random (shown as averages) and the stones cost Spirit Shards. |
-| `upfront` | Default false: count crafting paths that need gold spent first (see below). |
-| `volume_share`, `wait_days` | Default 0.1 and 7: how much of a path item's daily trade volume to sell, over how many days. |
+| `upfront` | Default false: count currency paths that need gold spent first (see below). |
+| `currencies` | Default true: count currency paths that need no gold. |
+| `volume_share`, `wait_days` | Default 0.1 and 7: how much of each item's daily trade volume paths may sell, over how many days. |
 
 Needs `inventories`. `characters` adds character bags and crafting ratings, `unlocks` the learned recipes, `tradingpost` the coins waiting in the delivery box, and `wallet` is needed to work out a plan's shortfall and to count Spirit Shards. With `craft`, recipe lookups take about 20 seconds the first time. If they fail, materials are sold as they are and the answer says so.
 
-With `wallet`, it also works out what crafting from Imperial Favor could raise: the End of Dragons "Dragon's" weapons, from materials bought with gold plus Spirit Shards and Research Notes, sold after fees. Each is made only if it profits, at most `max(1, floor(volume_share × wait_days × daily volume))` of it, within your crafting ratings and unlocked recipes when those can be read. These need gold up front, so they count only with `upfront`; otherwise the answer says what they could raise. Trade volume is a bundled snapshot (datawars2), so the figures are estimates. Buying items straight from favor vendors is not considered.
+With `wallet`, it also works out what spending currencies could raise: Imperial Favor (crafting the End of Dragons "Dragon's" weapons), Fine, Masterwork and Rare Rift Essence, Curious Mursaat Remnants (read from material storage and bags, so `inventories`) and Volatile Magic. A path crafts something, buys something a vendor sells that can be sold on, or buys containers to open. Those needing only currencies count unless `currencies` is false; those needing gold first only with `upfront`, and otherwise the answer says what they could raise.
+
+Everything sold is capped at `max(1, floor(volume_share × wait_days × daily volume))` per item, shared between paths, with instant sales walking the buy orders. Daily and weekly purchase limits are respected, and crafts are checked against your ratings and unlocked recipes when those can be read. Containers count at the average of openings recorded on the wiki, with the sample size shown; contents past the cap, bound or junk count at vendor value, and one without at least 100 recorded openings is left out and listed. Drop rates and trade volumes are a bundled, dated snapshot, so the figures are estimates. Vendor access is not checked, and buying items straight from favor vendors is not considered.
 
 Only one conversion step is considered for spare materials, and there is no salvaging. Recipes needing discovery or an unlock are skipped unless `unlocks` shows them learned. The promotion list is a snapshot with some gaps (such as Pile of Crystalline Dust). Listed sales are not guaranteed to happen. Bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested. With `plan`, other saved plans' materials are not held back.
 

@@ -83,12 +83,21 @@ Ask "what can I sell?" or "I need 200g". `gw2_raise_gold` on `gw2-account` lists
 
 By default it also checks whether materials raise more after one crafting or refining step (`craft`). Mystic Forge material promotions are checked when asked (`promote`): their yields are random, so the quantities and gold shown are averages, and the stones cost Spirit Shards. Looking up recipes takes about 20 seconds the first time. The report site has the same two options.
 
-With the `wallet` permission it also says what crafting from Imperial Favor could raise: weapons made from bought materials, Spirit Shards and Research Notes. They need gold up front, so they count only when asked (`upfront`, or "Include paths that need gold up front" on the site), and each is capped at about 10% of a week's trade.
+With the `wallet` permission it also works out what spending currencies could raise:
+
+| Currency | Considered |
+| --- | --- |
+| Imperial Favor | Crafting the End of Dragons "Dragon's" weapons |
+| Fine, Masterwork and Rare Rift Essence | Medium Karmic Crafting Bags (through Tyrian Defense Seals), Astral Fluctuating Masses, Trophy, cloth, leather, metal and wood shipments (Rare), Rift Motivations (Fine and Masterwork) |
+| Curious Mursaat Remnants (Janthir Wilds) | Kodan Cache Keys, Lowland Shore materials, Shard of Bava Nisos, Mists Gate Residue, Lightborne weapons, Heavy and Large Crafting Bags, Trophy Shipments |
+| Volatile Magic | Trophy, cloth, leather, metal and wood shipments |
+
+Paths that need only currencies are counted unless turned off (`currencies`, or "Spend currencies where no gold is needed" on the site). Paths that need gold spent first count only when asked (`upfront`, or "Include paths that need gold up front"); otherwise the answer says what they could raise. Everything sold is capped at about 10% of a week's trade, weekly and daily purchase limits are respected, and containers count at the average of openings recorded on the wiki: your results will differ. A container with fewer than 100 recorded openings, or none, is left out, and the answer says so.
 
 Its limits:
 
 - Only one conversion step is considered: one craft or one promotion, never a chain such as ore to ingot to a higher component.
-- There is no salvaging, and the only currency conversion is the Imperial Favor crafting above.
+- There is no salvaging, and no currency conversion beyond the paths above. Whether you can reach a vendor (expansion, mastery, portable exchanger) is not checked.
 - Recipes that need discovery or an unlock are skipped unless the key has `unlocks` and shows them learned. Without `characters`, crafting ratings aren't checked.
 - Promotions come from a snapshot of the wiki bundled with the package, and some are missing from it (Pile of Crystalline Dust, for one).
 - Listed sales are not guaranteed: they pay only if a buyer takes them. Instant sales are priced from the buy orders of the moment.
@@ -154,7 +163,7 @@ const items = await gw2.many('/v2/items', [19721, 19976]);                      
 
 `gw2.raw(path)` is the untyped escape hatch; only the `gw2_api_get` and `gw2_account_get` MCP tools use it. The Mystic Forge promotions in `packages/core/src/promotions-data.ts` are a one-time wiki snapshot; nothing fetches them at run time. To refresh it after the game changes them:
 
-What each Imperial Favor weapon takes, and how many trade per day, is in `packages/core/src/currency-paths-data.ts`, from `node scripts/sync-currency-paths.mjs` (build, run, build again). Re-run it to refresh the volumes.
+What each currency path takes, the average contents of containers and how many of everything trade per day are in `packages/core/src/currency-paths-data.ts`, from `node scripts/sync-currency-paths.mjs` (build, run, build again). Re-run it to refresh the drop rates and volumes.
 
 The pools of ingredients any Mystic Forge recipe accepts (`packages/recipes/src/forge-pools-data.ts`) are a snapshot too, from `node scripts/sync-forge-pools.mjs`; add a family there only when the wiki states its average yield.
 
