@@ -1,6 +1,6 @@
 {
   "name": "@gw2-ai/mcp-wiki",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "MCP server for the official Guild Wars 2 wiki: search, plain-text pages, Semantic MediaWiki queries and game-id lookups.",
   "keywords": [
     "guild-wars-2",

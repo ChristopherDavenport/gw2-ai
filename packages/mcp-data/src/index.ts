@@ -9,7 +9,7 @@ import * as plans from './plans.js';
 import * as tools from './tools.js';
 import { MAX_OUTPUT, READ_ONLY, WRITES_PLAN, log, run } from './util.js';
 
-const VERSION = '0.0.2';
+const VERSION = '0.0.3';
 
 export function createServer(): McpServer {
   // No key, ever: this server only reads public endpoints.

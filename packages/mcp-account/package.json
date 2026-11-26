@@ -1,6 +1,6 @@
 {
   "name": "@gw2-ai/mcp-account",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "MCP server for your Guild Wars 2 account: AI-ready markdown reports, item locations, character builds and crafting shopping lists. Needs a GW2 API key.",
   "keywords": [
     "guild-wars-2",

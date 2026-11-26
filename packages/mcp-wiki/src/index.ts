@@ -6,7 +6,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js'
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 import { z } from 'zod';
 
-const VERSION = '0.0.2';
+const VERSION = '0.0.3';
 const READ_ONLY = { readOnlyHint: true, openWorldHint: true } as const;
 
 function log(...args: unknown[]): void {

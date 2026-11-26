@@ -1,6 +1,6 @@
 {
   "name": "@gw2-ai/mcp-data",
-  "version": "0.0.2",
+  "version": "0.0.3",
   "description": "MCP server for public Guild Wars 2 data: item search, trading post prices and flip math, recipe trees with craft-vs-buy costs, gem exchange, achievements.",
   "keywords": [
     "guild-wars-2",
