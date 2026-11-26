@@ -528,7 +528,7 @@ textarea.update-input {
   margin: 0 0 1rem;
 }
 
-.plan-settings label {
+#plan-setting-list label {
   display: inline-block;
   margin: 0 1.5rem 0.5rem 0;
 }
@@ -615,6 +615,11 @@ textarea.update-input {
     grid-template-columns: minmax(0, 1fr);
     gap: 0.25rem;
   }
+}
+
+.plan-sales summary {
+  cursor: pointer;
+  margin-bottom: 8px;
 }
 
 select {

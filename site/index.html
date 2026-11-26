@@ -126,7 +126,8 @@
         <p class="hint">
           Pick one or more things to make and get the steps as markdown for an AI assistant, then paste its changes back.
           No API key is needed; with one that has the
-          inventories permission, tick “Use my own materials” to count what you already own. The plan, holdings included, is saved in this
+          inventories permission, tick “Use my own materials” to count what you already own, or “Sell spare materials for the remaining
+          gold” to also list what to sell for the rest. The plan, holdings included, is saved in this
           browser and in its .json download. Forgetting the key removes the holdings from the saved plan.
         </p>
         <fieldset id="plan-goals" class="plan-goals">
@@ -163,32 +164,30 @@
             <legend>Options</legend>
             <div id="plan-setting-list"></div>
             <p id="plan-holdings-hint" class="hint"></p>
-          </fieldset>
-          <fieldset id="plan-sales" hidden>
-            <legend>Gold shortfall</legend>
-            <label class="check"><input type="checkbox" id="plan-sales-on" /> Cover the gold shortfall by selling spare materials</label>
-            <div id="plan-sales-controls" hidden>
-            <div class="sale-controls">
-              <label for="plan-sales-method">Method</label>
-              <select id="plan-sales-method">
-                <option value="instant">Sell at once, to buy orders</option>
-                <option value="list">List at the lowest price and wait</option>
-              </select>
-              <label for="plan-sales-order">Order</label>
-              <select id="plan-sales-order">
-                <option value="least-loss">Least value lost first</option>
-                <option value="fewest">Fewest sales</option>
-              </select>
-              <label for="plan-sales-keep">Items to keep</label>
-              <textarea id="plan-sales-keep" class="update-input" rows="3" spellcheck="false" placeholder="One name or id per line"></textarea>
-            </div>
-            <label class="check"><input type="checkbox" id="plan-sales-everything" /> Include gear and consumables</label>
-            <label class="check"><input type="checkbox" id="plan-sales-craft" checked /> Consider crafting first</label>
-            <label class="check"><input type="checkbox" id="plan-sales-promote" /> Consider Mystic Forge promotions</label>
-            <p class="hint">Materials can be crafted or refined, or promoted in the Mystic Forge, first when that raises more; only one such step is considered. Promotion yields are random, so their quantities and gold are averages, and they use Spirit Shards. Looking up recipes takes about 20 seconds.</p>
-            </div>
-            <p id="plan-sales-hint" class="hint" role="status" aria-live="polite"></p>
+            <p id="plan-sales-status" class="status" role="status" aria-live="polite"></p>
             <p id="plan-sales-elapsed" class="hint" aria-hidden="true" hidden></p>
+            <p id="plan-sales-hint" class="hint" role="status" aria-live="polite"></p>
+            <details id="plan-sales" class="plan-sales" hidden>
+              <summary>Selling options</summary>
+              <div class="sale-controls">
+                <label for="plan-sales-method">Method</label>
+                <select id="plan-sales-method">
+                  <option value="instant">Sell at once, to buy orders</option>
+                  <option value="list">List at the lowest price and wait</option>
+                </select>
+                <label for="plan-sales-order">Order</label>
+                <select id="plan-sales-order">
+                  <option value="least-loss">Least value lost first</option>
+                  <option value="fewest">Fewest sales</option>
+                </select>
+                <label for="plan-sales-keep">Items to keep</label>
+                <textarea id="plan-sales-keep" class="update-input" rows="3" spellcheck="false" placeholder="One name or id per line"></textarea>
+              </div>
+              <label class="check"><input type="checkbox" id="plan-sales-everything" /> Include gear and consumables</label>
+              <label class="check"><input type="checkbox" id="plan-sales-craft" checked /> Consider crafting first</label>
+              <label class="check"><input type="checkbox" id="plan-sales-promote" /> Consider Mystic Forge promotions</label>
+              <p class="hint">Materials can be crafted or refined, or promoted in the Mystic Forge, first when that raises more; only one such step is considered. Promotion yields are random, so their quantities and gold are averages, and they use Spirit Shards. Looking up recipes takes about 20 seconds. What is read to sell is not saved with your plan.</p>
+            </details>
           </fieldset>
           <fieldset id="plan-choices" class="plan-choices" hidden>
             <legend>Recipes and routes</legend>
