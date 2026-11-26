@@ -17,32 +17,27 @@ export function parseGoal(input: string): Goal | undefined {
   return Number.isSafeInteger(id) && id > 0 ? { id } : undefined;
 }
 
-export interface GoalRow {
-  item: string;
-  quantity: string;
+/** A quantity typed for one item; undefined unless it is a whole number a plan accepts. */
+export function parseQuantity(input: string): number | undefined {
+  const quantity = Number(input);
+  return Number.isInteger(quantity) && quantity >= 1 && quantity <= MAX_QUANTITY ? quantity : undefined;
 }
 
-export type GoalRows =
-  | { goals: { goal: Goal; input: string; quantity: number }[] }
-  | { error: string; row: number; field: 'item' | 'quantity' };
+export const QUANTITY_ERROR = `Quantity must be a whole number from 1 to ${MAX_QUANTITY}.`;
+
+export type Entry =
+  | { goal: Goal; input: string; quantity: number }
+  | { error: string; field: 'item' | 'quantity' };
 
 /**
- * The build form's rows, one item each: names are never split, since they can
- * hold commas and apostrophes. Rows with no item are skipped.
+ * The item and quantity typed to add one item. The name is never split, since
+ * names can hold commas and apostrophes.
  */
-export function parseGoalRows(rows: readonly GoalRow[]): GoalRows {
-  const goals: Extract<GoalRows, { goals: unknown }>['goals'] = [];
-  for (const [row, { item, quantity: typed }] of rows.entries()) {
-    if (!item.trim()) continue;
-    const goal = parseGoal(item);
-    if (!goal) return { error: 'Enter an item name or id.', row, field: 'item' };
-    const quantity = Number(typed);
-    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
-      return { error: `Quantity must be a whole number from 1 to ${MAX_QUANTITY}.`, row, field: 'quantity' };
-    }
-    goals.push({ goal, input: item, quantity });
-  }
-  return goals.length ? { goals } : { error: 'Enter an item name or id.', row: 0, field: 'item' };
+export function parseEntry(item: string, typed: string): Entry {
+  const goal = parseGoal(item);
+  if (!goal) return { error: 'Enter an item name or id.', field: 'item' };
+  const quantity = parseQuantity(typed);
+  return quantity === undefined ? { error: QUANTITY_ERROR, field: 'quantity' } : { goal, input: item, quantity };
 }
 
 type Json = Record<string, unknown>;
