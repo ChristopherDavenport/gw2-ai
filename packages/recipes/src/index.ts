@@ -17,7 +17,7 @@ export {
   type TreeVendor,
   type TreeVendorOffer,
 } from './tree.js';
-export { addVendorOffers, type FetchProgress } from './tree.js';
+export { addVendorOffers, materialPromotion, type FetchProgress } from './tree.js';
 export {
   addGoal,
   addOtherOffers,

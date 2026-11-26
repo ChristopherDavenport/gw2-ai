@@ -71,9 +71,14 @@ A model with no tools can work from the markdown pasted into a chat: the bottom 
 
 Ask "what can I sell?" or "I need 200g". `gw2_raise_gold` on `gw2-account` lists what to sell, how many and how, from material storage, the bank, shared slots and character bags, after the trading post's 15% fee. It works on its own or with a saved plan: then it holds back the materials the plan uses and aims at the gold the plan is short. It never sells anything, because the API is read-only; you make the sales in game.
 
+By default it also checks whether materials raise more after one crafting or refining step (`craft`). Mystic Forge material promotions are checked when asked (`promote`): their yields are random, so the quantities and gold shown are averages, and the stones cost Spirit Shards. Looking up recipes takes about 20 seconds the first time. The report site has the same two options.
+
 Its limits:
 
-- Sales are one step only. It does not refine, salvage or convert wallet currencies into gold first, even where that would pay more.
+- Only one conversion step is considered: one craft or one promotion, never a chain such as ore to ingot to a higher component.
+- There is no salvaging or currency conversion yet, even where that would pay more.
+- Recipes that need discovery or an unlock are skipped unless the key has `unlocks` and shows them learned. Without `characters`, crafting ratings aren't checked.
+- Promotions come from a snapshot of the wiki bundled with the package, and some are missing from it (Pile of Crystalline Dust, for one).
 - Listed sales are not guaranteed: they pay only if a buyer takes them. Instant sales are priced from the buy orders of the moment.
 - Bound items, equipped gear and guild storage are never considered. Legendary and Ascended items are never suggested. Gear and other non-materials only when asked.
 - With a plan, only that plan's materials are held back, for the recipes currently chosen. Other saved plans are not protected.
@@ -135,7 +140,15 @@ const core = await gw2.get('/v2/characters/:id/core', { path: { id: 'Example Nam
 const items = await gw2.many('/v2/items', [19721, 19976]);                      // Map<number, Item>
 ```
 
-`gw2.raw(path)` is the untyped escape hatch; only the `gw2_api_get` and `gw2_account_get` MCP tools use it. After changing response types in `packages/client/src/types`, run `node scripts/verify-samples.mjs` to check them against captured responses.
+`gw2.raw(path)` is the untyped escape hatch; only the `gw2_api_get` and `gw2_account_get` MCP tools use it. The Mystic Forge promotions in `packages/core/src/promotions-data.ts` are a one-time wiki snapshot; nothing fetches them at run time. To refresh it after the game changes them:
+
+```sh
+pnpm build
+node scripts/sync-promotions.mjs
+pnpm build   # pick up the new snapshot
+```
+
+After changing response types in `packages/client/src/types`, run `node scripts/verify-samples.mjs` to check them against captured responses.
 
 Working in this repository, Claude Code picks up `.mcp.json`, which runs the three servers from `packages/*/dist` (build first). Check the plugin manifests with `claude plugin validate .`.
 

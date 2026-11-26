@@ -9,3 +9,6 @@ export { needsResearch, parseSources, researchPlan, type ResearchOptions } from 
 export * from './fees.js';
 export { planSales, readSellables, renderSales, type SaleLine, type SaleOptions, type SalePlan, type Sellable, type Sellables } from './liquidate.js';
 export { planReserve, planShortfall, salesForPlan } from './plan-sales.js';
+export { planConversions, promotionRecipes, type Conversion, type ConversionData, type ConversionRecipe, type MarketItem } from './convert.js';
+export { readConversions, type Conversions, type ReadConversionOptions } from './convert-read.js';
+export { PROMOTIONS_AS_OF } from './promotions-data.js';

@@ -30,14 +30,21 @@ renderSales(planSales(items, { target: 2_000_000 }), { delivery, notes }); // 20
 
 const sales = salesForPlan(plan, items);                                   // plan: holdings freshly read
 renderPlan(plan, { sections: [], sales: { plan: sales, delivery, notes } });
+
+// Craft (or promote) materials first where that raises more.
+const { notes: unchecked, ...conversions } = await readConversions(client, permissions, items, { craft: true, promote: false });
+renderSales(planSales(items, { conversions }), { delivery, notes: [...notes, ...unchecked] });
+salesForPlan(plan, items, { conversions });
 ```
 
 - `readSellables(client, permissions)`: unbound items in material storage, the bank, shared slots and character bags, with prices and buy-order depth, plus coins in the delivery box (`tradingpost`). `notes` says what could not be read.
-- `planSales(items, options)`: pure. Options: `target` (copper; all of it when absent), `method` (`instant` or `list`), `order` (`least-loss` or `fewest`), `reserve`, `keep`, `everything`, `minLine`.
+- `planSales(items, options)`: pure. Options: `target` (copper; all of it when absent), `method` (`instant` or `list`), `order` (`least-loss` or `fewest`), `reserve`, `keep`, `everything`, `minLine`, `conversions`.
+- `readConversions(client, permissions, items, { craft, promote })`: recipes and prices for turning `items` into something else first. `craft` (default true) covers crafting and refining, using `characters` for ratings and `unlocks` for learned recipes; it takes about 20 seconds. `promote` (default false) adds Mystic Forge material promotions and uses `wallet` for Spirit Shards. `planConversions` is the pure part.
+- `promotionRecipes()` and `PROMOTIONS_AS_OF`: the bundled promotion snapshot, refreshed with `node scripts/sync-promotions.mjs` in the repository after `pnpm build`.
 - `salesForPlan(plan, items, options)`: holds back what the plan uses (`planReserve`) and aims at its shortfall (`planShortfall`, unknown until the wallet has been read).
 - Trading post fee arithmetic: `sellProceeds`, `listingFee`, `exchangeFee`, `flipProfit`, `breakEvenPrice`.
 
-Limits: sales are one step only (no refining, salvaging or converting currencies into gold first); listed sales are not guaranteed; bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested.
+Limits: only one conversion step; no salvaging or currency conversion yet; recipes needing discovery or an unlock are skipped unless `unlocks` shows them; promotion yields are random averages, and some promotions (such as Pile of Crystalline Dust) are missing from the snapshot; listed sales are not guaranteed; bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested.
 
 Sections the key has no permission for are skipped with a note instead of failing the report. Used by the [gw2-ai](https://github.com/ChristopherDavenport/gw2-ai) MCP servers and report site.
 

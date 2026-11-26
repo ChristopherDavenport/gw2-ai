@@ -8,15 +8,15 @@
  * renderMarkdown's sanitizer.
  */
 import { Gw2Client, missingPermissions, type CacheStore } from '@gw2kit/client';
-import { DEFAULT_VENDOR_CURRENCY, PLAN_SETTING_LABELS, planChoices, planShortfall, readHoldings, renderPlan, researchPlan, salesForPlan, type PlanChoice, type Sellables } from '@gw2-ai/core';
+import { DEFAULT_VENDOR_CURRENCY, PLAN_SETTING_LABELS, planChoices, planShortfall, readHoldings, renderPlan, researchPlan, salesForPlan, type PlanChoice } from '@gw2-ai/core';
 import { addGoal, addOtherOffers, createPlan, mergeLookups, parsePlan, planFromData, planSettings, refreshPrices, updatePlan, withHoldings, type CraftingPlan, type FetchProgress, type PlanGoal, type RecipeData, type PlanSettings, type PlanUpdate } from '@gw2kit/recipes';
 import { WikiClient } from '@gw2kit/wiki';
-import { $, describeError, downloadText, el, setStatus, setupTabs, type Tone } from './dom.js';
+import { $, describeError, downloadText, el, setStatus, setupTabs, startClock, type Tone } from './dom.js';
 import { planFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
 import { MAX_QUANTITY, parseGoalRows, parsePlanUpdate, type Goal, type GoalRows } from './plan-input.js';
 import { deletePlan, loadPlan, savePlan, withoutHoldings } from './plan-store.js';
-import { keepWarning, readAccountSellables, readSaleControls, type Account } from './sales-ui.js';
+import { checkingText, keepWarning, readAccountSellables, readConvertControls, readSaleControls, type Account, type AccountSales } from './sales-ui.js';
 
 /** Far above any real plan; stops a wrong file from freezing the page. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -95,8 +95,8 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   let shownGoals = '';
   /** Bumped when goals are added, so the background worker looks their offers up too. */
   let graphs = 0;
-  /** Set while sales are wanted in the markdown; `sellables` is absent while being read. */
-  let selling: { client: Gw2Client; sellables?: Sellables } | undefined;
+  /** Set while sales are wanted in the markdown; `read` is absent while being read. */
+  let selling: { client: Gw2Client; read?: AccountSales } | undefined;
   let busy = false;
   /** Bumped when the key is forgotten, so work already running can't bring holdings back. */
   let holdingsEpoch = 0;
@@ -142,7 +142,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     sellBox.hidden = !using;
     sellToggle.checked = selling !== undefined;
     sellControls.hidden = selling === undefined;
-    const sellables = selling?.sellables;
+    const sellables = selling?.read?.sellables;
     if (!sellables) {
       sellHint.textContent = '';
       return;
@@ -160,11 +160,17 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   /** The plan's markdown, with sales for its shortfall when asked for. */
   function render(plan: CraftingPlan): string {
-    const sellables = selling?.sellables;
-    if (!sellables || !holdingsInUse(plan) || planShortfall(plan) === 0) return renderPlan(plan);
-    const { items, delivery, notes } = sellables;
+    const read = selling?.read;
+    if (!read || !holdingsInUse(plan) || planShortfall(plan) === 0) return renderPlan(plan);
+    const { items, delivery, notes } = read.sellables;
+    const converted = read.conversions.get(readConvertControls('plan-sales'));
+    const sales = salesForPlan(plan, items, {
+      ...readSaleControls('plan-sales'),
+      delivery,
+      ...(converted.conversions ? { conversions: converted.conversions } : {}),
+    });
     return renderPlan(plan, {
-      sales: { plan: salesForPlan(plan, items, { ...readSaleControls('plan-sales'), delivery }), notes, ...(delivery ? { delivery } : {}) },
+      sales: { plan: sales, notes: [...notes, ...converted.notes], ...(delivery ? { delivery } : {}) },
     });
   }
 
@@ -691,6 +697,20 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   // ---- Sales for the shortfall ----
 
+  /** Read the conversions the boxes ask for, saying so and counting the wait. */
+  async function loadConversions(read: AccountSales): Promise<void> {
+    const wants = readConvertControls('plan-sales');
+    const missing = read.conversions.missing(wants);
+    if (!missing.length) return;
+    setStatus(copyStatus, checkingText(missing));
+    const stop = startClock($('plan-sales-elapsed'));
+    try {
+      await read.conversions.load(wants);
+    } finally {
+      stop();
+    }
+  }
+
   function readSales(): void {
     const account = options.account();
     if (!account || !current || busy) return showSettings();
@@ -698,9 +718,11 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     const wanted = (selling = { client: account.client });
     void run(copyStatus, 'Reading what you can sell...', async () => {
       try {
-        const sellables = await readAccountSellables(account);
-        if (epoch !== holdingsEpoch || selling !== wanted) return ['What was read to sell was discarded.', 'info'];
-        selling = { ...wanted, sellables };
+        const read = await readAccountSellables(account);
+        const discarded = () => epoch !== holdingsEpoch || selling !== wanted;
+        if (!discarded()) await loadConversions(read);
+        if (discarded()) return ['What was read to sell was discarded.', 'info'];
+        selling = { ...wanted, read };
         rerender();
         return ['Sales added to the plan.', 'ok'];
       } catch (err) {
@@ -711,10 +733,24 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     });
   }
 
+  /** A conversion box was ticked that needs data not read yet. */
+  function readMoreConversions(read: AccountSales): void {
+    const epoch = holdingsEpoch;
+    const wanted = selling;
+    void run(copyStatus, 'Reading...', async () => {
+      await loadConversions(read);
+      if (epoch !== holdingsEpoch || selling !== wanted) return ['What was read to sell was discarded.', 'info'];
+      rerender();
+      return ['Sales updated.', 'ok'];
+    });
+  }
+
   sellBox.addEventListener('change', (event) => {
     if (busy) return;
     if (event.target === sellToggle && sellToggle.checked) return readSales();
     if (event.target === sellToggle) selling = undefined;
+    const read = selling?.read;
+    if (read && read.conversions.missing(readConvertControls('plan-sales')).length) return readMoreConversions(read);
     rerender();
     setStatus(copyStatus, '');
   });

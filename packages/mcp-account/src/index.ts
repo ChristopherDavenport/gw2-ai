@@ -214,8 +214,11 @@ export function createServer(): McpServer {
         'Lists unbound materials and trophies (with `everything`, other unbound items too; Legendary and Ascended never) from material storage, bank, shared slots and character bags, ' +
         'priced at the trading post after the 15% fee, or at a vendor when that pays more. Without `target_gold` it lists everything sellable. ' +
         'With `plan` (a saved crafting plan) it refreshes the plan\'s holdings, holds back the materials that plan uses (no other plan\'s) and aims at its gold shortfall. ' +
-        'It never sells anything: the API is read-only, so the player makes the sales in game. One step only: no refining, salvaging or currency conversion; listed sales are not guaranteed; bound items and equipped gear are never considered. ' +
-        'Needs `inventories` (`characters` adds bags, `tradingpost` the delivery box, `wallet` a plan\'s shortfall). Changes only the local plan file. Cost: ~10 API calls.',
+        'With `craft` (default) it also checks whether materials raise more crafted or refined first; with `promote`, Mystic Forge material promotions (random yields, so averages; uses Spirit Shards). ' +
+        'It never sells, crafts or forges anything: the API is read-only, so the player does that in game. Only one conversion step; no salvaging or currency conversion yet; recipes that need discovery or an unlock are skipped unless `unlocks` shows them learned; the promotion list is a snapshot with some gaps (such as Pile of Crystalline Dust). ' +
+        'Listed sales are not guaranteed; bound items and equipped gear are never considered. ' +
+        'Needs `inventories` (`characters` adds bags and crafting ratings, `unlocks` learned recipes, `tradingpost` the delivery box, `wallet` a plan\'s shortfall and Spirit Shards). Changes only the local plan file. ' +
+        'Cost: ~10 API calls; `craft` adds up to ~150 recipe lookups and prices, about 20 s the first time.',
       inputSchema: {
         target_gold: z.number().positive().max(1_000_000).optional().describe('Gold to raise (200 = 200g). With `plan`, default: its shortfall.'),
         plan: z.string().min(1).max(80).optional().describe('Saved plan name, e.g. "twilight".'),
@@ -226,11 +229,13 @@ export function createServer(): McpServer {
           .describe('least-loss: sell first what keeps most of its listing value. fewest: fewer, larger sales.'),
         keep: z.array(z.union([z.string().min(1).max(200), z.number().int().positive()])).max(500).optional().describe('Item names or ids never to sell.'),
         everything: z.boolean().default(false).describe('Also gear, consumables and other non-materials. Ask the player first.'),
+        craft: z.boolean().default(true).describe('Craft or refine materials first where that raises more than selling them.'),
+        promote: z.boolean().default(false).describe('Also Mystic Forge material promotions: random yields, uses Spirit Shards.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    ({ target_gold, plan, method, order, keep, everything }) =>
-      withClient((c) => tools.raiseGold(c, { targetGold: target_gold, plan, method, order, keep, everything })),
+    ({ target_gold, plan, method, order, keep, everything, craft, promote }) =>
+      withClient((c) => tools.raiseGold(c, { targetGold: target_gold, plan, method, order, keep, everything, craft, promote })),
   );
 
   server.registerTool(

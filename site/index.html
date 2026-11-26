@@ -184,8 +184,12 @@
               <textarea id="plan-sales-keep" class="update-input" rows="3" spellcheck="false" placeholder="One name or id per line"></textarea>
             </div>
             <label class="check"><input type="checkbox" id="plan-sales-everything" /> Include gear and consumables</label>
+            <label class="check"><input type="checkbox" id="plan-sales-craft" checked /> Consider crafting first</label>
+            <label class="check"><input type="checkbox" id="plan-sales-promote" /> Consider Mystic Forge promotions</label>
+            <p class="hint">Materials can be crafted or refined, or promoted in the Mystic Forge, first when that raises more; only one such step is considered. Promotion yields are random, so their quantities and gold are averages, and they use Spirit Shards. Looking up recipes takes about 20 seconds.</p>
             </div>
             <p id="plan-sales-hint" class="hint" role="status" aria-live="polite"></p>
+            <p id="plan-sales-elapsed" class="hint" aria-hidden="true" hidden></p>
           </fieldset>
           <fieldset id="plan-choices" class="plan-choices" hidden>
             <legend>Recipes and routes</legend>
@@ -218,9 +222,11 @@
         <h2 id="sales-heading">Raise gold</h2>
         <p class="hint">
           Find what to sell from your material storage, bank and bags, as a markdown checklist. Needs a saved key with the
-          inventories permission; characters adds bags and tradingpost checks the delivery box. Bound items, Ascended and
+          inventories permission; characters adds bags and crafting levels, unlocks adds learned recipes, wallet counts Spirit
+          Shards and tradingpost checks the delivery box. Bound items, Ascended and
           Legendary items and equipped gear are never listed. What is read is not saved with your plan.
         </p>
+        <p class="hint">Materials can be crafted or refined, or promoted in the Mystic Forge, first when that raises more; only one such step is considered. Promotion yields are random, so their quantities and gold are averages, and they use Spirit Shards. Looking up recipes takes about 20 seconds.</p>
         <p id="sales-key-hint" class="hint"></p>
         <form id="sales-form" novalidate>
           <div class="sale-controls">
@@ -242,9 +248,12 @@
               <textarea id="sales-keep" class="update-input" rows="3" spellcheck="false" placeholder="One name or id per line"></textarea>
             </div>
             <label class="check"><input type="checkbox" id="sales-everything" /> Include gear and consumables</label>
+            <label class="check"><input type="checkbox" id="sales-craft" checked /> Consider crafting first</label>
+            <label class="check"><input type="checkbox" id="sales-promote" /> Consider Mystic Forge promotions</label>
           <button type="submit" id="sales-find" class="primary" disabled>Find sales</button>
         </form>
         <p id="sales-status" class="status" role="status" aria-live="polite"></p>
+        <p id="sales-elapsed" class="hint" aria-hidden="true" hidden></p>
 
         <div id="sales-output" hidden>
           <div class="toolbar">

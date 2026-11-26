@@ -4,6 +4,7 @@
  * plans for some items passes them as `reserve`.
  */
 import { TTL, type Gw2Client, type InventorySlot, type Permission } from '@gw2kit/client';
+import { planConversions, type Conversion, type ConversionData } from './convert.js';
 import { sellProceeds } from './fees.js';
 import { cell, coins, num, text } from './format.js';
 
@@ -43,6 +44,8 @@ export interface SaleOptions {
   everything?: boolean;
   /** Sales raising less than this are used only when the larger ones fall short. Default 1g. */
   minLine?: number;
+  /** Recipes and prices (readConversions): turn materials into something worth more before selling. */
+  conversions?: ConversionData;
 }
 
 export interface SaleLine {
@@ -56,6 +59,8 @@ export interface SaleLine {
   revenue: number;
   /** `revenue` as a share of what listing the same units at the lowest price would bring. */
   kept: number;
+  /** Set when the thing sold has to be crafted or promoted first; `revenue` is net of what it buys. */
+  convert?: Conversion;
 }
 
 export interface SalePlan {
@@ -83,6 +88,20 @@ function walkBook(book: readonly { price: number; quantity: number }[], units: n
     filled += take;
   }
   return { revenue, filled };
+}
+
+/** `item` as it will be once `units` have been sold into its buy orders. */
+function behind(item: Sellable, units: number): Sellable {
+  if (units <= 0 || !item.buy) return item;
+  const book: { price: number; quantity: number }[] = [];
+  let taken = units;
+  for (const level of item.book ?? []) {
+    const gone = Math.min(level.quantity, taken);
+    taken -= gone;
+    if (level.quantity > gone) book.push({ price: level.price, quantity: level.quantity - gone });
+  }
+  // Without depth the top order is assumed to take everything, these units too.
+  return item.book ? { ...item, book } : item;
 }
 
 /** The best way to sell `units` of one item at once, and what it pays. */
@@ -119,15 +138,41 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
   const minLine = options.minLine ?? DEFAULT_MIN_LINE;
   const keep = new Set((options.keep ?? []).map((k) => String(k).trim().toLowerCase()));
 
-  const candidates = items.flatMap((item) => {
+  const spare = items.flatMap((item) => {
     if (!options.everything && !item.material) return [];
     if (item.rarity && NEVER_SOLD.has(item.rarity)) return [];
     if (keep.has(String(item.id)) || keep.has(item.name.toLowerCase())) return [];
     const units = item.count - (options.reserve?.get(item.id) ?? 0);
-    if (units <= 0) return [];
-    const q = quote(item, units, method);
+    return units > 0 ? [{ item, units }] : [];
+  });
+
+  // What gains by being converted is sold as the result; the rest as it is.
+  const kept = (id: number, name: string | undefined) => keep.has(String(id)) || keep.has((name ?? '').toLowerCase());
+  const conversions = options.conversions
+    ? planConversions(
+        new Map(spare.map((s) => [s.item.id, s.units])),
+        // Something to keep is not something to make and sell either.
+        { ...options.conversions, recipes: options.conversions.recipes.filter((r) => !kept(r.output, options.conversions!.market.get(r.output)?.name)) },
+        { method },
+      )
+    : [];
+  const converted = new Map<number, number>();
+  for (const c of conversions) converted.set(c.output, (converted.get(c.output) ?? 0) + c.units);
+  const used = new Map<number, number>();
+  for (const u of conversions.flatMap((c) => c.uses)) used.set(u.id, (used.get(u.id) ?? 0) + u.count);
+
+  const candidates: { item?: Sellable; line: SaleLine }[] = spare.flatMap(({ item: held, units }) => {
+    // Buy orders a converted sale of the same item fills can't be filled twice.
+    const item = behind(held, converted.get(held.id) ?? 0);
+    const left = units - (used.get(item.id) ?? 0);
+    const q = left > 0 ? quote(item, left, method) : undefined;
     return q ? [{ item, line: { id: item.id, name: item.name, held: item.count, ...q } }] : [];
   });
+  for (const c of conversions) {
+    candidates.push({
+      line: { id: c.output, name: c.name, quantity: c.units, held: 0, how: method, revenue: c.revenue, kept: c.kept, convert: c },
+    });
+  }
 
   // Worthwhile sales first, then the preferred order within each group.
   candidates.sort(
@@ -152,9 +197,9 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
     for (let i = chosen.length - 2; i >= 0; i--) {
       if (raised - chosen[i]!.line.revenue >= target) raised -= chosen.splice(i, 1)[0]!.line.revenue;
     }
-    // Only part of the last sale may be needed.
+    // Only part of the last sale may be needed. Conversions are done whole.
     const last = chosen.at(-1);
-    if (last && raised > target) {
+    if (last?.item && raised > target) {
       const wanted = last.line.revenue - (raised - target);
       const units = unitsFor(last.item, last.line.quantity, wanted, method);
       chosen[chosen.length - 1] = { item: last.item, line: { ...last.line, ...quote(last.item, units, method)! } };
@@ -261,6 +306,23 @@ export async function readSellables(client: Gw2Client, permissions: readonly Per
 
 // ---------------------------------------------------------------- rendering
 
+function disciplineText(c: Conversion): string {
+  const all = c.disciplines ?? [];
+  const names = all.length > 2 ? `${all.slice(0, 2).join('/')} or ${all.length - 2} more` : all.join('/');
+  return c.rating ? `${names} ${c.rating}` : names;
+}
+
+function conversionText(c: Conversion, how: string): string {
+  const uses = c.uses.map((u) => `${num(u.count)} × ${text(u.name)}`).join(', ');
+  const verb =
+    c.kind === 'craft'
+      ? `Craft ${num(c.units)} × ${text(c.name)} (${disciplineText(c)})`
+      : `Promote in the Mystic Forge ${num(c.crafts)} times for about ${num(c.units)} × ${text(c.name)} (random)`;
+  const bought = c.buys.length ? `, buying ${c.buys.map((b) => `${num(b.count)} × ${text(b.name)} (${coins(b.cost)})`).join(', ')}` : '';
+  const shards = c.spiritShards ? `, ${num(c.spiritShards)} Spirit Shards for stones` : '';
+  return `${verb} from ${uses}${bought}${shards}; sell ${how}: ${coins(c.revenue)}, ${coins(c.gain)} more than selling the materials`;
+}
+
 const HOW: Record<SaleLine['how'], string> = { instant: 'to buy orders', list: 'listed', vendor: 'to a vendor' };
 /** Sales listed one by one; the rest are totalled. */
 const LISTED_SALES = 60;
@@ -277,15 +339,18 @@ export function renderSales(sales: SalePlan, options: { heading?: string; delive
         : `These sales raise **${coins(sales.total)}**, covering ${coins(sales.target)}. Up to ${coins(sales.available)} could be raised in all.`;
   const shown = sales.lines.slice(0, LISTED_SALES);
   const lines = shown.map((l) => {
+    if (l.convert) return `- [ ] ${conversionText(l.convert, HOW[l.how])}`;
     const kept = l.how === 'vendor' ? '' : `, ${Math.round(l.kept * 100)}% of listing value`;
     const part = l.quantity < l.held ? ` of ${num(l.held)}` : '';
     return `- [ ] Sell ${num(l.quantity)}${part} × ${text(l.name)} ${HOW[l.how]}: ${coins(l.revenue)}${l.how === 'list' ? '' : kept}`;
   });
   const rest = sales.lines.slice(LISTED_SALES);
   if (rest.length) lines.push(`- and ${num(rest.length)} smaller sales worth ${coins(rest.reduce((sum, l) => sum + l.revenue, 0))}`);
+  const first = shown.reduce((sum, l) => sum + (l.convert?.buys.reduce((s, b) => s + b.cost, 0) ?? 0), 0);
   return [
     `## ${cell(options.heading ?? 'Raise gold')}`,
     head,
+    first ? `Some steps need purchases first, ${coins(first)} in all (already taken off what they raise).` : '',
     options.delivery ? `Pick up first: ${coins(options.delivery)} is waiting in the trading post delivery box.` : '',
     sales.method === 'list' ? 'Listed sales pay only when a buyer takes them, which can be days.' : '',
     lines.join('\n') || (sales.target === 0 ? '' : '_Nothing sellable._'),

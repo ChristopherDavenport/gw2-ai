@@ -35,10 +35,12 @@ Claude Code: `claude mcp add --scope user gw2-account -- npx -y @gw2-ai/mcp-acco
 | `order` | `least-loss` (default): sell first what keeps most of its listing value. `fewest`: fewer, larger sales. |
 | `keep` | Item names or ids never to sell. |
 | `everything` | Also gear, consumables and other non-materials. |
+| `craft` | Default true: craft or refine materials first where that raises more than selling them. |
+| `promote` | Default false: also Mystic Forge material promotions. Yields are random (shown as averages) and the stones cost Spirit Shards. |
 
-Needs `inventories`. `characters` adds character bags, `tradingpost` the coins waiting in the delivery box, and `wallet` is needed to work out a plan's shortfall.
+Needs `inventories`. `characters` adds character bags and crafting ratings, `unlocks` the learned recipes, `tradingpost` the coins waiting in the delivery box, and `wallet` is needed to work out a plan's shortfall and to count Spirit Shards. With `craft`, recipe lookups take about 20 seconds the first time. If they fail, materials are sold as they are and the answer says so.
 
-Sales are one step only: nothing is refined, salvaged or converted from currencies first. Listed sales are not guaranteed to happen. Bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested. With `plan`, other saved plans' materials are not held back.
+Only one conversion step is considered, and there is no salvaging or currency conversion yet. Recipes needing discovery or an unlock are skipped unless `unlocks` shows them learned. The promotion list is a snapshot with some gaps (such as Pile of Crystalline Dust). Listed sales are not guaranteed to happen. Bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested. With `plan`, other saved plans' materials are not held back.
 
 ## API key
 
