@@ -90,6 +90,9 @@ export interface VendorOffer {
   historical: boolean;
 }
 
+/** TextExtracts returns at most this many introductions per query. */
+const INTROS_PER_QUERY = 20;
+
 /** Output ids per `ask` query: the wiki rejects queries of more than ~12 OR'd values. */
 const FORGE_IDS_PER_QUERY = 10;
 const FORGE_PRINTOUTS =
@@ -165,6 +168,32 @@ export class WikiClient {
       text: text.length > max ? text.slice(0, max) : text,
       truncated: text.length > max,
     };
+  }
+
+  /**
+   * Plain-text introductions of several pages, 20 to a request, keyed by the
+   * titles asked for. Missing pages are left out.
+   */
+  async intros(titles: readonly string[], options: { maxChars?: number } = {}): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    const wanted = [...new Set(titles)].filter((t) => t && !t.includes('|'));
+    for (let i = 0; i < wanted.length; i += INTROS_PER_QUERY) {
+      const batch = wanted.slice(i, i + INTROS_PER_QUERY);
+      const data = await this.#call<{
+        query?: {
+          normalized?: { from: string; to: string }[];
+          redirects?: { from: string; to: string }[];
+          pages: Record<string, { title: string; extract?: string }>;
+        };
+      }>({ action: 'query', prop: 'extracts', exintro: 1, explaintext: 1, exlimit: 'max', redirects: 1, titles: batch.join('|') });
+      const follow = (list: { from: string; to: string }[] | undefined, title: string) => list?.find((r) => r.from === title)?.to ?? title;
+      const pages = new Map(Object.values(data.query?.pages ?? {}).map((p) => [p.title, p.extract]));
+      for (const title of batch) {
+        const extract = pages.get(follow(data.query?.redirects, follow(data.query?.normalized, title)))?.trim();
+        if (extract) out.set(title, extract.slice(0, options.maxChars ?? 600));
+      }
+    }
+    return out;
   }
 
   /**

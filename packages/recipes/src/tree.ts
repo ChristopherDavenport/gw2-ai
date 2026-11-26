@@ -145,6 +145,21 @@ export interface FetchRecipeOptions {
   promotions?: boolean;
   /** Most vendor offers kept per item, best first. Default 5. */
   maxOffers?: number;
+  /** Called as lookups finish. */
+  onProgress?: (progress: FetchProgress) => void;
+  /**
+   * Called once recipes and prices are in, before vendor lookups, with the data
+   * so far. It goes on changing: read it now or copy it.
+   */
+  onRecipes?: (data: RecipeData) => void;
+}
+
+export interface FetchProgress {
+  /** `recipes`: the graph. `vendors`: items with no other route. `offers`: other places to buy. */
+  phase: 'recipes' | 'vendors' | 'offers';
+  done: number;
+  /** Unknown while the graph is still growing. */
+  total?: number;
 }
 
 export interface SolveRecipeOptions {
@@ -195,6 +210,8 @@ export interface RecipeData {
   vendors: Record<number, { url: string; offers: TreeVendorOffer[] }>;
   /** Items the wiki lists vendors for, none of whose offers could be costed. */
   vendorUnmatched: number[];
+  /** ISO time other vendor offers were looked up (see addVendorOffers); absent until then. */
+  offersFetchedAt?: string;
   /** Whether the wiki lookups worked; absent when they didn't run. */
   status: { mysticForge?: Status<'ok' | 'failed'>; vendors?: Status<'ok' | 'partial' | 'failed'> };
 }
@@ -299,15 +316,19 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
       }
     }
     frontier = next;
+    options.onProgress?.({ phase: 'recipes', done: seen.size });
   }
+  data.searched = [...searched].sort((a, b) => a - b);
 
+  // Currency and upgrade names first, so the partial data reads properly.
+  if (currencyIds.size > 0) await addCurrencies(client, data);
+  if (upgradeIds.size > 0) {
+    for (const [id, u] of await client.many('/v2/guild/upgrades', upgradeIds)) data.guildUpgrades[id] = u.name;
+  }
+  options.onRecipes?.(data);
   if (wiki && options.vendors !== false) {
     const unpriced = Object.keys(data.items).map(Number).filter((id) => unpricedLeaf(data, searched, id));
     await addVendors(client, wiki, data, searched, unpriced, options);
-  }
-  if (currencyIds.size > 0 && Object.keys(data.currencies).length === 0) await addCurrencies(client, data);
-  if (upgradeIds.size > 0) {
-    for (const [id, u] of await client.many('/v2/guild/upgrades', upgradeIds)) data.guildUpgrades[id] = u.name;
   }
   data.searched = [...searched].sort((a, b) => a - b);
   return data;
@@ -343,10 +364,10 @@ export async function addVendorOffers(
   wiki: WikiClient,
   data: RecipeData,
   ids: readonly number[],
-  options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers'> = {},
+  options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers' | 'onProgress'> = {},
 ): Promise<void> {
   const wanted = ids.filter((id) => has(data.items, id) && !has(data.vendors, id));
-  if (wanted.length) await addVendors(client, wiki, data, new Set(data.searched), wanted, options);
+  if (wanted.length) await addVendors(client, wiki, data, new Set(data.searched), wanted, options, 'offers');
 }
 
 /**
@@ -362,7 +383,8 @@ async function addVendors(
   data: RecipeData,
   searched: Set<number>,
   first: readonly number[],
-  options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers'>,
+  options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers' | 'onProgress'>,
+  phase: FetchProgress['phase'] = 'vendors',
 ): Promise<void> {
   const prefer = options.vendorCurrency ?? new Map<number, number>();
   const maxOffers = options.maxOffers ?? 1 + VENDOR_ALTERNATIVES;
@@ -389,6 +411,8 @@ async function addVendors(
       break;
     }
     const offersById = new Map<number, VendorOffer[]>();
+    let finished = 0;
+    options.onProgress?.({ phase, done: 0, total: pages.size });
     await mapLimit([...pages], 3, async ([id, title]) => {
       attempts++;
       try {
@@ -398,6 +422,7 @@ async function addVendors(
         failures++;
         lastError = errorText(err);
       }
+      options.onProgress?.({ phase, done: ++finished, total: pages.size });
     });
     if (!offersById.size) break;
 

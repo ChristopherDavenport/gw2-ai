@@ -11,7 +11,9 @@ function wiki(sections: Record<string, string>) {
     const q = new URL(String(input)).searchParams;
     const ok = (body: unknown) => new Response(JSON.stringify(body));
     const title = q.get('titles') ?? q.get('page')!;
-    if (q.get('action') === 'query') return ok({ query: { pages: { 1: { title, extract: `${title} intro.\nMore.` } } } });
+    if (q.get('action') === 'query') {
+      return ok({ query: { pages: Object.fromEntries(title.split('|').map((t, i) => [i, { title: t, extract: `${t} intro.\nMore.` }])) } });
+    }
     if (!(title in sections)) return ok({ error: { info: "The page you specified doesn't exist." } });
     if (q.get('prop') === 'sections') return ok({ parse: { title, sections: [{ line: 'Acquisition', index: '1' }] } });
     return ok({ parse: { text: { '*': sections[title] } } });

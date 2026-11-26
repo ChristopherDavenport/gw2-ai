@@ -1,6 +1,6 @@
 import { mapLimit } from '@gw2kit/client';
 import { solvePlan, type CraftingPlan, type PlanResearch, type PlanSource, type PlanStep, type StepKey } from '@gw2kit/recipes';
-import type { WikiClient } from '@gw2kit/wiki';
+import { pageUrl, type WikiClient } from '@gw2kit/wiki';
 
 const INTRO_CHARS = 300;
 const EXCERPT_CHARS = 900;
@@ -61,27 +61,37 @@ const MAX_REQUIREMENTS = 4;
 const mayHaveOtherSources = (step: PlanStep): boolean =>
   step.count > 0 && step.action === 'vendor' && step.kind === 'Item' && !step.note && untradeable(step);
 
-async function excerpt(wiki: WikiClient, step: PlanStep, always: boolean): Promise<PlanResearch | 'none' | undefined> {
-  // Vendor offers are already in the graph, and their tables would crowd out the rest.
+async function excerpt(
+  wiki: WikiClient,
+  step: PlanStep,
+  always: boolean,
+  intros: Map<string, string>,
+): Promise<PlanResearch | 'none' | undefined> {
   // The same page, read again with the vendor tables, for what they ask of the buyer.
   const sold = await wiki.section(step.name, 'Acquisition', { maxChars: SECTION_CHARS });
   const requires =
     step.action === 'vendor'
       ? [...new Set(sold?.text.match(/\bRequires [^|\n]+/g)?.map((r) => r.trim()))].slice(0, MAX_REQUIREMENTS)
       : [];
-  const [intro, section] = await Promise.all([
-    wiki.page(step.name, { intro: true, maxChars: INTRO_CHARS }),
-    wiki.section(step.name, 'Acquisition', { maxChars: SECTION_CHARS, omit: ['Sold by'] }),
-  ]);
+  // Vendor offers are already in the graph, and their tables would crowd out the rest.
+  const section = await wiki.section(step.name, 'Acquisition', { maxChars: SECTION_CHARS, omit: ['Sold by'] });
   if (!always && !requires.length && !(section && OTHER_SOURCES.test(section.text))) return 'none';
-  const url = section?.url ?? intro?.url;
-  const text = [intro?.text, section?.text.slice(0, EXCERPT_CHARS)].filter(Boolean).join('\n');
 
   const sources = parseSources(section?.text ?? '');
-  await mapLimit(sources.filter((s) => s.kind === 'gathered').slice(0, DESCRIBED_SOURCES), 3, async (source) => {
-    const about = await wiki.page(source.name, { intro: true, maxChars: INTRO_CHARS }).catch(() => null);
-    if (about?.text) source.about = firstSentences(about.text);
-  });
+  const described = sources.filter((s) => s.kind === 'gathered').slice(0, DESCRIBED_SOURCES);
+  // One request for the step and its sources; sources seen before are not asked for again.
+  const unknown = [step.name, ...described.map((s) => s.name)].filter((name) => !intros.has(name));
+  if (unknown.length) {
+    const found = await wiki.intros(unknown, { maxChars: INTRO_CHARS }).catch(() => undefined);
+    if (found) for (const name of unknown) intros.set(name, found.get(name) ?? '');
+  }
+  for (const source of described) {
+    const about = intros.get(source.name);
+    if (about) source.about = firstSentences(about);
+  }
+
+  const url = section?.url ?? (intros.get(step.name) ? pageUrl(step.name) : undefined);
+  const text = [intros.get(step.name), section?.text.slice(0, EXCERPT_CHARS)].filter(Boolean).join('\n');
   const method = MAP_COMPLETION.exec(section?.text ?? '')?.[1];
   return text && url
     ? {
@@ -94,6 +104,13 @@ async function excerpt(wiki: WikiClient, step: PlanStep, always: boolean): Promi
     : undefined;
 }
 
+export interface ResearchOptions {
+  /** Steps to look up instead of the default, by name or key, whatever their route. */
+  only?: readonly string[];
+  /** Called as each step finishes, with what was found for it. */
+  onProgress?: (done: number, total: number, found?: { key: StepKey; research: PlanResearch }) => void;
+}
+
 /**
  * Add wiki intros and Acquisition text to steps, by default those with no
  * known route, and untradeable vendor items the wiki lists other sources for.
@@ -104,7 +121,7 @@ async function excerpt(wiki: WikiClient, step: PlanStep, always: boolean): Promi
 export async function researchPlan(
   plan: CraftingPlan,
   wiki: WikiClient,
-  options: { only?: readonly string[] } = {},
+  options: ResearchOptions = {},
 ): Promise<{ plan: CraftingPlan; failed: string[] }> {
   const only = options.only?.map((n) => n.trim().toLowerCase());
   const steps = solvePlan(plan).steps.filter((s) =>
@@ -112,14 +129,19 @@ export async function researchPlan(
   );
   const found: Record<StepKey, PlanResearch> = {};
   const failed: string[] = [];
+  const intros = new Map<string, string>();
+  let done = 0;
+  options.onProgress?.(0, steps.length);
   await mapLimit(steps, 3, async (step) => {
+    let hit: PlanResearch | undefined;
     try {
-      const result = await excerpt(wiki, step, only !== undefined || needsResearch(step));
+      const result = await excerpt(wiki, step, only !== undefined || needsResearch(step), intros);
       if (result === undefined) failed.push(step.name);
-      else if (result !== 'none') found[step.key] = result;
+      else if (result !== 'none') hit = found[step.key] = result;
     } catch {
       failed.push(step.name);
     }
+    options.onProgress?.(++done, steps.length, hit && { key: step.key, research: hit });
   });
   for (const name of only ?? []) {
     if (!steps.some((s) => s.name.toLowerCase() === name || s.key === name)) failed.push(name);

@@ -17,9 +17,12 @@ export {
   type TreeVendor,
   type TreeVendorOffer,
 } from './tree.js';
-export { addVendorOffers } from './tree.js';
+export { addVendorOffers, type FetchProgress } from './tree.js';
 export {
+  addOtherOffers,
+  mergeLookups,
   buyPrice,
+  type CreatePlanOptions,
   createPlan,
   DEFAULT_PLAN_SETTINGS,
   planSettings,
