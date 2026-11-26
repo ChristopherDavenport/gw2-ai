@@ -63,7 +63,7 @@ export function createServer(): McpServer {
     { name: 'gw2-account', version: VERSION },
     {
       instructions:
-        'Guild Wars 2 account data via the player\'s API key: report, item locations, characters and builds, crafting shopping lists, holdings for saved crafting plans. ' +
+        'Guild Wars 2 account data via the player\'s API key: report, item locations, characters and builds, crafting shopping lists, holdings for saved crafting plans, what to sell to raise gold. ' +
         'Start with gw2_key_info if unsure what the key allows. Never ask the user to paste their API key into the chat; if none is configured, ' +
         'tell them to run `gw2-mcp-account set-key` in a terminal. Account data can lag the game by up to ~5 minutes. ' +
         'Use gw2-data for public item/price lookups and gw2-wiki for wiki pages.',
@@ -203,6 +203,34 @@ export function createServer(): McpServer {
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
     ({ plan }) => withClient((c) => tools.planHoldings(c, plan)),
+  );
+
+  server.registerTool(
+    'gw2_raise_gold',
+    {
+      title: 'Raise gold by selling',
+      description:
+        'What to sell, how many and how, to raise gold from what the account holds. Works with or without crafting: "I need 200g", "what can I sell?", "how do I pay for my legendary". ' +
+        'Lists unbound materials and trophies (with `everything`, other unbound items too; Legendary and Ascended never) from material storage, bank, shared slots and character bags, ' +
+        'priced at the trading post after the 15% fee, or at a vendor when that pays more. Without `target_gold` it lists everything sellable. ' +
+        'With `plan` (a saved crafting plan) it refreshes the plan\'s holdings, holds back the materials that plan uses (no other plan\'s) and aims at its gold shortfall. ' +
+        'It never sells anything: the API is read-only, so the player makes the sales in game. One step only: no refining, salvaging or currency conversion; listed sales are not guaranteed; bound items and equipped gear are never considered. ' +
+        'Needs `inventories` (`characters` adds bags, `tradingpost` the delivery box, `wallet` a plan\'s shortfall). Changes only the local plan file. Cost: ~10 API calls.',
+      inputSchema: {
+        target_gold: z.number().positive().max(1_000_000).optional().describe('Gold to raise (200 = 200g). With `plan`, default: its shortfall.'),
+        plan: z.string().min(1).max(80).optional().describe('Saved plan name, e.g. "twilight".'),
+        method: z.enum(['instant', 'list']).default('instant').describe('instant: sell to buy orders now. list: list at the lowest price and wait for buyers.'),
+        order: z
+          .enum(['least-loss', 'fewest'])
+          .default('least-loss')
+          .describe('least-loss: sell first what keeps most of its listing value. fewest: fewer, larger sales.'),
+        keep: z.array(z.union([z.string().min(1).max(200), z.number().int().positive()])).max(500).optional().describe('Item names or ids never to sell.'),
+        everything: z.boolean().default(false).describe('Also gear, consumables and other non-materials. Ask the player first.'),
+      },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    ({ target_gold, plan, method, order, keep, everything }) =>
+      withClient((c) => tools.raiseGold(c, { targetGold: target_gold, plan, method, order, keep, everything })),
   );
 
   server.registerTool(

@@ -19,6 +19,7 @@ export {
 } from './tree.js';
 export { addVendorOffers, type FetchProgress } from './tree.js';
 export {
+  addGoal,
   addOtherOffers,
   mergeLookups,
   buyPrice,
@@ -36,6 +37,7 @@ export {
   type CraftingPlan,
   type PlanHoldings,
   type PlanInput,
+  type PlanGoal,
   type PlanNote,
   type PlanResearch,
   type PlanRoute,

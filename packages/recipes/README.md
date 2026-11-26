@@ -28,7 +28,7 @@ flattenLeaves(tree);       // what to buy: items with TP prices, plus { kind: 'C
 ```ts
 import { fetchRecipeData, solveRecipeTree } from '@gw2kit/recipes';
 
-const data = await fetchRecipeData(client, 30704, { wiki });
+const data = await fetchRecipeData(client, 30704, { wiki }); // or a list of ids, fetched as one graph
 await fs.writeFile('twilight.json', JSON.stringify(data));
 
 const three = solveRecipeTree(data, 3);
@@ -39,19 +39,25 @@ Prices in `RecipeData` are a snapshot (`fetchedAt`); fetch again when you need c
 
 ## Crafting plans
 
-A `CraftingPlan` is the `RecipeData` plus what the player decided, finished, learned and owns: plain JSON with no I/O of its own. `solvePlan` turns it into steps, each consumer before what it consumes, with demand for a shared item summed before crafts are rounded up.
+A `CraftingPlan` is one or several goals, the `RecipeData` behind them, and what the player decided, finished, learned and owns: plain JSON with no I/O of its own. `solvePlan` turns it into steps, each consumer before what it consumes, with demand for a shared item summed before crafts are rounded up.
 
 ```ts
-import { createPlan, parsePlan, solvePlan, updatePlan, withHoldings } from '@gw2kit/recipes';
+import { addGoal, createPlan, parsePlan, solvePlan, updatePlan, withHoldings } from '@gw2kit/recipes';
 
 let plan = await createPlan(client, 30704, 1, { wiki });
-({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes, settings; returns `errors`
+// Or several at once: createPlan(client, [{ itemId: 30704 }, { itemId: 19675, quantity: 77 }], 1, { wiki })
+plan = await addGoal(client, plan, 19675, 77, { wiki });            // later; an existing goal just gets more
+({ plan } = updatePlan(plan, { quantities: { 'Mystic Clover': 0 } })); // new quantity, 0 removes the goal
+({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes, quantities, settings; returns `errors`
 plan = withHoldings(plan, { items: { 19675: 77 }, wallet: {} });
 
 const { steps, coin } = solvePlan(plan);
 steps.filter((s) => s.undecided);                                   // recipe choices gold can't compare
 parsePlan(JSON.stringify(plan));                                    // read one back; throws if it isn't a plan
 ```
+
+`plan.goals` lists what is being made. Shared materials are summed across goals, and each step's `goals` says which of them need it. Run `addOtherOffers` after `addGoal` for the new goal's vendor offers, and read holdings again, since a plan keeps only those its graph used at the time. The plan format is version 2; `parsePlan` converts version 1 plans, which had a single `goal`.
+
 `settings` takes five booleans (defaults in `DEFAULT_PLAN_SETTINGS`):
 
 - `useOwnMaterials` (true): take owned items off what the plan calls for. Wallet balances always count.
@@ -61,7 +67,6 @@ parsePlan(JSON.stringify(plan));                                    // read one 
 - `useBuyOrders` (false): price purchases at the highest buy order.
 
 `createPlan` also looks up vendors for bound forge results and the biggest purchases (`addVendorOffers`), so Wizard's Vault and weekly offers show up as routes to choose.
-
 
 `refreshPrices(client, plan)` reads trading post prices again without refetching the graph. [`@gw2-ai/core`](https://www.npmjs.com/package/@gw2-ai/core) renders a plan as markdown.
 

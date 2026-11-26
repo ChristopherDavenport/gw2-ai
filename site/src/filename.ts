@@ -14,7 +14,16 @@ export function reportFilename(account: string, date: Date): string {
   return `gw2-${slug(account, 'account')}-${day(date)}.md`;
 }
 
-/** `gw2-plan-<goal-name>-<yyyy-mm-dd>.<md|json>`. The name may come from a loaded file. */
-export function planFilename(goal: string, date: Date, extension: 'md' | 'json'): string {
-  return `gw2-plan-${slug(goal, 'item').slice(0, 80)}-${day(date)}.${extension}`;
+/**
+ * `gw2-plan-<goal-names>-<yyyy-mm-dd>.<md|json>`, naming two goals at most.
+ * The names may come from a loaded file.
+ */
+export function planFilename(goals: readonly string[], date: Date, extension: 'md' | 'json'): string {
+  const named = goals.length > 2 ? `${goals[0]} and ${goals.length - 1} more` : goals.join(' ');
+  return `gw2-plan-${slug(named, 'item').slice(0, 80)}-${day(date)}.${extension}`;
+}
+
+/** `gw2-sales-<yyyy-mm-dd>.md` */
+export function salesFilename(date: Date): string {
+  return `gw2-sales-${day(date)}.md`;
 }

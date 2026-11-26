@@ -6,12 +6,12 @@ import { WikiClient } from '@gw2kit/wiki';
 import { describe, expect, it } from 'vitest';
 import { planFromData } from '@gw2kit/recipes';
 import { loadPlan, savePlan } from '@gw2-ai/core/plans';
-import { character, findItem, keyInfo, planHoldings, shoppingList } from '../src/tools.js';
+import { character, findItem, keyInfo, planHoldings, raiseGold, shoppingList } from '../src/tools.js';
 
 const KEY = '00000000-0000-0000-0000-00000000000000000000-0000-0000-0000-000000000000';
 
-const ITEMS: Record<number, { name: string; rarity?: string; details?: unknown }> = {
-  19721: { name: 'Glob of Ectoplasm', rarity: 'Exotic' },
+const ITEMS: Record<number, { name: string; rarity?: string; type?: string; details?: unknown }> = {
+  19721: { name: 'Glob of Ectoplasm', rarity: 'Exotic', type: 'CraftingMaterial' },
   19700: { name: 'Mithril Ore', rarity: 'Basic' },
   19684: { name: 'Mithril Ingot', rarity: 'Basic' },
   46742: { name: 'Lump of Mithrillium', rarity: 'Ascended' },
@@ -27,7 +27,7 @@ function setup(permissions: string[]) {
     const url = new URL(String(input));
     calls.push(url.pathname);
     expect(url.searchParams.get('access_token') === KEY).toBe(
-      /^\/v2\/(account|characters|tokeninfo)/.test(url.pathname),
+      /^\/v2\/(account|characters|tokeninfo|commerce\/delivery)/.test(url.pathname),
     );
     const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).map(Number);
     const ok = (body: unknown) => new Response(JSON.stringify(body));
@@ -40,6 +40,10 @@ function setup(permissions: string[]) {
         return ok([{ id: 19721, count: 2 }]);
       case '/v2/account/materials':
         return ok([{ id: 19700, category: 5, count: 150 }, { id: 46747, count: 0, category: 5 }]);
+      case '/v2/account/wallet':
+        return ok([{ id: 1, value: 100 }]);
+      case '/v2/commerce/delivery':
+        return ok({ coins: 12_345, items: [] });
       case '/v2/account/legendaryarmory':
         return ok([]);
       case '/v2/characters':
@@ -146,31 +150,92 @@ describe('account tools', () => {
   });
 });
 
-describe('planHoldings', () => {
-  const plan = () =>
-    planFromData({
-      version: 1, rootId: 46742, maxDepth: 10, fetchedAt: '2026-11-26T00:00:00.000Z',
-      items: { 46742: { name: 'Lump of Mithrillium' }, 19700: { name: 'Mithril Ore', sell: 10 } },
-      searched: [46742, 19700],
-      recipes: { 46742: [{ source: 'crafting', id: 1, disciplines: ['Armorsmith'], min_rating: 450, output_count: 1, ingredients: [{ type: 'Item', id: 19700, count: 100 }] }] },
-      currencies: {}, guildUpgrades: {}, vendors: {}, vendorUnmatched: [], status: {},
-    });
+const lumpPlan = (quantity = 1) =>
+  planFromData({
+    version: 1, rootId: 46742, maxDepth: 10, fetchedAt: '2026-11-26T00:00:00.000Z',
+    items: { 46742: { name: 'Lump of Mithrillium' }, 19700: { name: 'Mithril Ore', sell: 10 } },
+    searched: [46742, 19700],
+    recipes: { 46742: [{ source: 'crafting', id: 1, disciplines: ['Armorsmith'], min_rating: 450, output_count: 1, ingredients: [{ type: 'Item', id: 19700, count: 100 }] }] },
+    currencies: {}, guildUpgrades: {}, vendors: {}, vendorUnmatched: [], status: {},
+  }, quantity);
 
-  it('saves what the account holds into the plan', async () => {
-    const dir = await mkdtemp(join(tmpdir(), 'gw2-holdings-'));
-    try {
-      await savePlan('lump', plan(), dir);
+async function inTempDir(body: (dir: string) => Promise<void>) {
+  const dir = await mkdtemp(join(tmpdir(), 'gw2-holdings-'));
+  try {
+    await body(dir);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+}
+
+describe('planHoldings', () => {
+  it('saves what the account holds into the plan', () =>
+    inTempDir(async (dir) => {
+      await savePlan('lump', lumpPlan(), dir);
       const out = await planHoldings(setup(['account', 'inventories']).client, 'lump', dir);
       expect(out).toContain('Holdings saved to plan `lump`');
       expect(out).toContain('wallet unavailable');
       expect(out).toContain('- [x] 100 × Mithril Ore (held)');
       expect((await loadPlan('lump', dir)).holdings.items).toEqual({ 19700: 150, 46742: 1 });
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+    }));
 
   it('needs inventories', async () => {
     await expect(planHoldings(setup(['account']).client, 'lump')).rejects.toThrow(/gw2_plan_holdings needs the `inventories`/);
   });
+});
+
+describe('raiseGold', () => {
+  const SELLER = ['account', 'inventories', 'characters', 'wallet', 'tradingpost'];
+
+  it('lists sales without a plan, and sells nothing it should not', async () => {
+    const md = await raiseGold(setup(SELLER).client, { method: 'list' });
+    expect(md).toContain('10 × Glob of Ectoplasm listed');
+    expect(md).toContain('150 × Mithril Ore listed');
+    expect(md).not.toContain('Mithrillium');
+    expect(md).toContain('1g 23s 45c is waiting in the trading post delivery box');
+    expect(md).toContain('Nothing has been sold');
+  });
+
+  it('works without the optional permissions and says what was not read', async () => {
+    const { client, calls } = setup(['account', 'inventories']);
+    const md = await raiseGold(client, { targetGold: 0.5, method: 'list', keep: ['Mithril Ore'] });
+    expect(md).toContain('covering 50s');
+    expect(md).toMatch(/3 of 10 × Glob of Ectoplasm/);
+    expect(md).not.toContain('× Mithril Ore');
+    expect(md).toContain('trading post delivery box unavailable (needs `tradingpost`)');
+    expect(calls).not.toContain('/v2/commerce/delivery');
+  });
+
+  it('refuses without inventories', async () => {
+    await expect(raiseGold(setup(['account']).client, {})).rejects.toThrow(/gw2_raise_gold needs the `inventories`/);
+  });
+
+  it('refreshes a plan, aims at its shortfall and holds back what it uses', () =>
+    inTempDir(async (dir) => {
+      // 200 ore needed, 150 held, 100c in the wallet: 4s short.
+      await savePlan('lump', lumpPlan(2), dir);
+      const md = await raiseGold(setup(SELLER).client, { plan: 'lump', method: 'list' }, dir);
+      expect(md).toContain('## Raise the gold from spare materials');
+      // The 1g 23s 45c in the delivery box covers it, so nothing is sold.
+      expect(md).toContain('Nothing needs selling');
+      expect(md).toContain('waiting in the trading post delivery box');
+      expect(md).not.toContain('× Glob of Ectoplasm');
+      // Without the delivery box (no `tradingpost`), the shortfall is raised from sales.
+      const unread = await raiseGold(setup(['account', 'inventories', 'characters', 'wallet']).client, { plan: 'lump', method: 'list' }, dir);
+      expect(unread).toContain('covering 4s');
+      expect(unread).toContain('× Glob of Ectoplasm listed');
+      expect(md).not.toMatch(/Sell [\d,]+( of [\d,]+)? × Mithril Ore/);
+      expect((await loadPlan('lump', dir)).holdings.items[19700]).toBe(150);
+    }));
+
+  it('says so when a plan is not short, unless given a target', () =>
+    inTempDir(async (dir) => {
+      await savePlan('lump', lumpPlan(), dir);
+      const { client, calls } = setup(SELLER);
+      const md = await raiseGold(client, { plan: 'lump' }, dir);
+      expect(md).toContain('nothing needs selling');
+      expect(md).not.toContain('- [ ] Sell');
+      expect(calls).not.toContain('/v2/commerce/delivery');
+      expect(await raiseGold(client, { plan: 'lump', targetGold: 1, method: 'list' }, dir)).toContain('- [ ] Sell');
+    }));
 });

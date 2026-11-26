@@ -7,7 +7,7 @@ There are three ways to use it:
 | Piece | What it is | Needs |
 | --- | --- | --- |
 | **Report site** (`site/`) | A static web page. Store your API key in the browser, generate a markdown report of your account, paste it into any AI chat. | A browser |
-| **MCP servers** (`packages/mcp-*`) | Three servers any MCP client can run: `gw2-account` (your account, needs a key), `gw2-data` (items, recipes, crafting plans, prices, gem exchange, raw API), `gw2-wiki` (search and read wiki.guildwars2.com). | Node.js 22+ |
+| **MCP servers** (`packages/mcp-*`) | Three servers any MCP client can run: `gw2-account` (your account and what to sell to raise gold, needs a key), `gw2-data` (items, recipes, crafting plans, prices, gem exchange, raw API), `gw2-wiki` (search and read wiki.guildwars2.com). | Node.js 22+ |
 | **Skills** (`skills/`) | Instructions that teach Claude how to answer account questions, trade and craft, plan legendaries and collections, and write GW2 API code. They work with the MCP servers or with a pasted report. | Claude Code, or any client that loads skills |
 
 The Claude Code plugin in this repository bundles the skills and the three servers.
@@ -63,9 +63,20 @@ The servers are built on three libraries under the `@gw2kit` scope, usable on th
 
 ### Crafting plans
 
-For a goal that takes weeks, such as a legendary, ask the assistant to plan it. A plan is a JSON document that renders to markdown: recipe choices to make, time gates, what to earn, buy and make, and wiki excerpts for the parts with no known source. The assistant builds it up in steps: `gw2_plan_create`, then your answers to the open decisions, then `gw2_plan_holdings` to subtract what you own, then notes and progress with `gw2_plan_update`. Plans are saved as files in `~/.local/share/gw2-ai/plans/` (`$XDG_DATA_HOME/gw2-ai/plans/` if set), shared by `gw2-data` and `gw2-account`.
+For a goal that takes weeks, such as a legendary, ask the assistant to plan it. One plan can make several things at once, counting the materials they share once, and goals can be added, resized or removed later. A plan is a JSON document that renders to markdown: recipe choices to make, time gates, what to earn, buy and make, and wiki excerpts for the parts with no known source. The assistant builds it up in steps: `gw2_plan_create`, then your answers to the open decisions, then `gw2_plan_holdings` to subtract what you own, then notes and progress with `gw2_plan_update`. Plans are saved as files in `~/.local/share/gw2-ai/plans/` (`$XDG_DATA_HOME/gw2-ai/plans/` if set), shared by `gw2-data` and `gw2-account`.
 
-A model with no tools can work from the markdown pasted into a chat: the bottom of the plan shows a JSON update block (`choose`, `done`, `undone`, `notes`) it can reply with.
+A model with no tools can work from the markdown pasted into a chat: the bottom of the plan shows a JSON update block (`choose`, `done`, `undone`, `notes`, `quantities`, `settings`) it can reply with.
+
+### Raising gold
+
+Ask "what can I sell?" or "I need 200g". `gw2_raise_gold` on `gw2-account` lists what to sell, how many and how, from material storage, the bank, shared slots and character bags, after the trading post's 15% fee. It works on its own or with a saved plan: then it holds back the materials the plan uses and aims at the gold the plan is short. It never sells anything, because the API is read-only; you make the sales in game.
+
+Its limits:
+
+- Sales are one step only. It does not refine, salvage or convert wallet currencies into gold first, even where that would pay more.
+- Listed sales are not guaranteed: they pay only if a buyer takes them. Instant sales are priced from the buy orders of the moment.
+- Bound items, equipped gear and guild storage are never considered. Legendary and Ascended items are never suggested. Gear and other non-materials only when asked.
+- With a plan, only that plan's materials are held back, for the recipes currently chosen. Other saved plans are not protected.
 
 ### Report site
 
@@ -139,13 +150,13 @@ packages/
   client/            @gw2kit/client: typed GW2 API client (every /v2 route), cache, rate limiter
   wiki/              @gw2kit/wiki: wiki client; Mystic Forge recipes and vendor offers from wiki data
   recipes/           @gw2kit/recipes: recipe trees and crafting plans (crafting, Mystic Forge, vendors); fetch and solve
-  core/              @gw2-ai/core: markdown for models: account report, character pages, recipe trees, crafting plans
+  core/              @gw2-ai/core: markdown for models: account report, character pages, recipe trees, crafting plans, sales to raise gold
   mcp-account/       MCP server for the player's account (needs an API key)
   mcp-data/          MCP server for items, recipes, prices, gem exchange, raw API
   mcp-wiki/          MCP server for wiki.guildwars2.com
 site/                static report site (Vite)
 skills/
-  gw2-account/                 account questions; how to read a pasted report
+  gw2-account/                 account questions, raising gold; how to read a pasted report
   gw2-trading-and-crafting/    prices, flips, fees, craft vs buy, gem exchange
   gw2-goals/                   legendaries, collections, achievements, masteries
   gw2-api/                     writing code against the GW2 and wiki APIs

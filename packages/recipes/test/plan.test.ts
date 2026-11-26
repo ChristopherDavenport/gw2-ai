@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { mergeLookups, parsePlan, planFromData, solvePlan, updatePlan, withHoldings, type RecipeData, type SolvedPlan, type SourceRecipe } from '../src/index.js';
+import { addGoal, mergeLookups, parsePlan, planFromData, solvePlan, updatePlan, withHoldings, type RecipeData, type SolvedPlan, type SourceRecipe } from '../src/index.js';
 
 const craft = (id: number, ingredients: [number, number][], output_count = 1): SourceRecipe => ({
   source: 'crafting',
@@ -113,7 +113,7 @@ describe('updatePlan', () => {
   });
 
   it('rejects other JSON', () => {
-    expect(() => parsePlan('{"version":1}')).toThrow('Not a version 1 crafting plan');
+    expect(() => parsePlan('{"version":1}')).toThrow('Not a crafting plan');
   });
 });
 
@@ -214,5 +214,38 @@ describe('mergeLookups', () => {
     const other = planFromData({ ...data(), rootId: 2 });
     const plan = planFromData(data());
     expect(mergeLookups(plan, other)).toBe(plan);
+  });
+});
+
+describe('several goals', () => {
+  const two = () => planFromData(data(), [{ itemId: 1 }, { itemId: 2, quantity: 2 }]);
+
+  it('sums what they share before rounding crafts', () => {
+    const solved = solvePlan(two());
+    // The sword needs 1 hilt, and 2 more are goals: 3 hilts, 9 bars, plus 3 for the sword.
+    expect(step(solved, 'Hilt')).toMatchObject({ need: 3, goals: expect.arrayContaining(['i1', 'i2']) });
+    expect(step(solved, 'Bar')).toMatchObject({ need: 12, times: 3 });
+  });
+
+  it('lets an owned copy of a goal cover other uses, never the goal itself', () => {
+    const solved = solvePlan(withHoldings(two(), { items: { 2: 5 }, wallet: {} }));
+    expect(step(solved, 'Hilt')).toMatchObject({ need: 3, owned: 1, count: 2 });
+  });
+
+  it('changes and removes quantities, keeping at least one goal', () => {
+    const removed = updatePlan(two(), { quantities: { Hilt: 0 } });
+    expect(removed.plan.goals.map((g) => g.name)).toEqual(['Sword']);
+    expect(updatePlan(removed.plan, { quantities: { Sword: 0 } }).errors).toHaveLength(1);
+    expect(updatePlan(two(), { quantities: { Sword: 3, Ore: 1 } }).errors).toHaveLength(1);
+  });
+
+  it('reads a version 1 plan', () => {
+    const { goals, ...rest } = planFromData(data());
+    expect(parsePlan({ ...rest, version: 1, goal: goals[0] }).goals).toEqual(goals);
+  });
+
+  it('adds to the quantity of a goal already there without fetching', async () => {
+    const plan = await addGoal(undefined as never, two(), 1, 2);
+    expect(plan.goals[0]).toMatchObject({ itemId: 1, quantity: 3 });
   });
 });

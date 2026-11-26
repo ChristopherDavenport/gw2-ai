@@ -29,7 +29,7 @@ describe('plan files', () => {
     await writeFile(join(dir, 'broken.json'), '{');
     expect(await readdir(dir)).toEqual(['broken.json', 'sword.json']);
     const listed = await listPlans(dir);
-    expect(listed.find((p) => p.name === 'sword')?.goal?.name).toBe('Sword');
+    expect(listed.find((p) => p.name === 'sword')?.goals?.[0]?.name).toBe('Sword');
     expect(listed.find((p) => p.name === 'broken')).not.toHaveProperty('goal');
     await expect(loadPlan('broken', dir)).rejects.toThrow(/Can't read the plan file/);
     await expect(loadPlan('shield', dir)).rejects.toThrow(/No saved plan named "shield"/);
