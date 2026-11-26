@@ -69,6 +69,7 @@ Values are gross instant-sell prices at the highest buy order. Selling actually 
 
 **Raising gold.** `gw2_raise_gold` works with or without crafting. Without `plan`, pass `target_gold` (in gold) or leave it out to list everything sellable. With `plan`, it refreshes that plan's holdings, holds back what the plan uses and aims at its shortfall (needs `wallet`). Other arguments: `method` (`instant`, default, or `list`), `order` (`least-loss`, default, or `fewest`), `keep` (names or ids), `everything` (also non-materials; ask first), `craft` (default true: craft or refine first where that raises more), `promote` (default false: also Mystic Forge promotions; random yields, costs Spirit Shards, so ask first). `unlocks` adds learned recipes and `characters` crafting ratings; the first call with `craft` takes about 20 s. Ask whether there is anything they want to keep. Tell the player:
 - Nothing is sold, crafted or forged for them; the API is read-only. They do it in game, after picking up any coins in the delivery box.
+- A plan already holds back the materials it will use itself, including those it picked to craft or forge with rather than sell.
 - Only one crafting or promotion step is considered; there is no salvaging or currency conversion yet. Recipes needing discovery or an unlock are skipped unless `unlocks` shows them learned.
 - Promotion quantities and gold are averages of a random yield, and some promotions (such as Pile of Crystalline Dust) are not in the list.
 - Listed sales are not guaranteed, and prices are a snapshot.

@@ -1,5 +1,6 @@
 import { mapLimit, type Gw2Client, type Recipe, type RecipeIngredient } from '@gw2kit/client';
 import { pageUrl, type MysticForgeRecipe, type VendorCaps, type VendorOffer, type WikiClient } from '@gw2kit/wiki';
+import { FORGE_POOLS } from './forge-pools-data.js';
 
 export type IngredientKind = RecipeIngredient['type'];
 
@@ -65,6 +66,11 @@ export interface SourceRecipe {
   output_count: number;
   ingredients: { type: IngredientKind; id: number; count: number }[];
   wiki?: { name: string; url: string };
+  /**
+   * `stacks` stacks of `stack` units on top of `ingredients`, each stack of any
+   * one of `items` (item ids), which `label` names. Only in RecipeData.pools.
+   */
+  pool?: { stacks: number; stack: number; label: string; items: number[] };
 }
 
 export interface RecipeTreeNode {
@@ -143,6 +149,12 @@ export interface FetchRecipeOptions {
    * take, into `RecipeData.promotions`. The tree solver ignores them.
    */
   promotions?: boolean;
+  /**
+   * With `wiki`: also add the Mystic Forge recipes that take any of a pool of
+   * items (Amalgamated Gemstone) to `RecipeData.pools`, and price the pool
+   * items, from a bundled snapshot. The tree solver ignores them.
+   */
+  pools?: boolean;
   /** Most vendor offers kept per item, best first. Default 5. */
   maxOffers?: number;
   /** Called as lookups finish. */
@@ -189,9 +201,10 @@ export interface RecipeData {
   fetchedAt: string;
   /**
    * Item id → name, lowest trading post sell listing and highest buy order
-   * (copper; absent when there is none), and whether the item is bound.
+   * (copper; absent when there is none), whether the item is bound, and what a
+   * vendor pays for it (absent when vendors won't buy it).
    */
-  items: Record<number, { name: string; sell?: number; buy?: number; bound?: boolean }>;
+  items: Record<number, { name: string; sell?: number; buy?: number; bound?: boolean; vendor?: number }>;
   /** Item ids whose recipes were looked up; others are leaves at the fetch limits. */
   searched: number[];
   /** Output item id → recipes that make it. */
@@ -202,12 +215,17 @@ export interface RecipeData {
    * sides. Present only when asked for.
    */
   promotions?: Record<number, SourceRecipe[]>;
+  /** Output item id → recipes taking any of a pool of items; present only when asked for. */
+  pools?: Record<number, SourceRecipe[]>;
   /** Currency id → name. */
   currencies: Record<number, string>;
   /** Guild upgrade id → name. */
   guildUpgrades: Record<number, string>;
-  /** Item id → its wiki page and current vendor offers, best first. */
-  vendors: Record<number, { url: string; offers: TreeVendorOffer[] }>;
+  /**
+   * Item id → its wiki page and current vendor offers, best first. `preferred`:
+   * the order follows a `vendorCurrency` preference.
+   */
+  vendors: Record<number, { url: string; offers: TreeVendorOffer[]; preferred?: boolean }>;
   /** Items the wiki lists vendors for, none of whose offers could be costed. */
   vendorUnmatched: number[];
   /** ISO time other vendor offers were looked up (see addVendorOffers); absent until then. */
@@ -275,6 +293,7 @@ export async function fetchRecipeData(
     vendorUnmatched: [],
     status: {},
     ...(options.promotions && wiki ? { promotions: {} } : {}),
+    ...(options.pools && wiki ? { pools: {} } : {}),
   };
   const searched = new Set<number>();
   const seen = new Set<number>(roots);
@@ -310,10 +329,14 @@ export async function fetchRecipeData(
       }
     }
 
+    // Pool recipes are static, so they need no lookup; their fixed items are fetched like any other.
+    const pooled: typeof found = data.pools ? frontier.flatMap((id) => poolRecipes(id).map((r): (typeof found)[number] => [id, r])) : [];
+
     const next: number[] = [];
     for (const [output, r] of found) (data.recipes[output] ??= []).push(r);
     for (const [output, r] of promoted) (data.promotions![output] ??= []).push(r);
-    for (const [, r] of [...found, ...promoted]) {
+    for (const [output, r] of pooled) (data.pools![output] ??= []).push(r);
+    for (const [, r] of [...found, ...promoted, ...pooled]) {
       for (const ing of r.ingredients) {
         if (ing.type === 'Currency') currencyIds.add(ing.id);
         else if (ing.type === 'GuildUpgrade') upgradeIds.add(ing.id);
@@ -327,6 +350,10 @@ export async function fetchRecipeData(
     options.onProgress?.({ phase: 'recipes', done: seen.size });
   }
   data.searched = [...searched].sort((a, b) => a - b);
+  // Pool items are only priced: one that something else makes was searched above.
+  const poolItems = new Set(Object.values(data.pools ?? {}).flatMap((list) => list.flatMap((r) => r.pool!.items)));
+  const unpriced = [...poolItems].filter((id) => !has(data.items, id));
+  if (unpriced.length) await addItems(client, data, unpriced);
 
   // Currency and upgrade names first, so the partial data reads properly.
   if (currencyIds.size > 0) await addCurrencies(client, data);
@@ -349,7 +376,14 @@ async function addItems(client: Gw2Client, data: RecipeData, ids: Iterable<numbe
     const sell = prices.get(id)?.sells.unit_price ?? 0;
     const buy = prices.get(id)?.buys?.unit_price ?? 0;
     const bound = item.flags?.some((f) => f === 'AccountBound' || f === 'SoulbindOnAcquire') ?? false;
-    data.items[id] = { name: item.name, ...(sell > 0 ? { sell } : {}), ...(buy > 0 ? { buy } : {}), ...(bound ? { bound } : {}) };
+    const vendor = item.flags?.includes('NoSell') ? 0 : (item.vendor_value ?? 0);
+    data.items[id] = {
+      name: item.name,
+      ...(sell > 0 ? { sell } : {}),
+      ...(buy > 0 ? { buy } : {}),
+      ...(bound ? { bound } : {}),
+      ...(vendor > 0 ? { vendor } : {}),
+    };
   }
 }
 
@@ -461,7 +495,7 @@ async function addVendors(
         unmatched.add(id);
         continue;
       }
-      data.vendors[id] = { url: pageUrl(pages.get(id)!), offers: ranked.slice(0, maxOffers) };
+      data.vendors[id] = { url: pageUrl(pages.get(id)!), offers: ranked.slice(0, maxOffers), ...(prefer.has(id) ? { preferred: true } : {}) };
       // The tree only costs the first offer; keeping more means pricing what they charge too.
       const priced = options.maxOffers ? ranked.slice(0, maxOffers) : ranked.slice(0, 1);
       for (const c of priced.flatMap((o) => o.costs)) if (c.kind === 'Item' && !has(data.items, c.id)) costItems.add(c.id);
@@ -589,6 +623,20 @@ function fromForge(r: MysticForgeRecipe): SourceRecipe | undefined {
     ingredients,
     wiki: { name: r.name, url: r.url },
   };
+}
+
+/** The pool recipes making `output`, from the bundled snapshot. */
+function poolRecipes(output: number): SourceRecipe[] {
+  return FORGE_POOLS.filter((p) => p.output === output).map((p) => ({
+    source: 'mystic-forge',
+    id: 0,
+    disciplines: [],
+    min_rating: 0,
+    output_count: p.count,
+    ingredients: p.fixed.map(([id, count]) => ({ type: 'Item', id, count })),
+    pool: { stacks: p.stacks, stack: p.stack, label: p.label, items: [...p.items] },
+    wiki: { ...p.wiki },
+  }));
 }
 
 const PHILOSOPHERS_STONE = 20796;

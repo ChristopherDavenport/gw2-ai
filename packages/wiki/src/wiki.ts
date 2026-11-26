@@ -90,6 +90,14 @@ export interface VendorOffer {
   historical: boolean;
 }
 
+/** One row of a page's `Sold by` table. */
+export interface SoldByRow {
+  /** Vendor NPC (its wiki page title). */
+  vendor: string;
+  /** The row's Notes cell as plain text; empty without one. */
+  notes: string;
+}
+
 /** TextExtracts returns at most this many introductions per query. */
 const INTROS_PER_QUERY = 20;
 
@@ -207,6 +215,29 @@ export class WikiClient {
     heading = 'Acquisition',
     options: { maxChars?: number; omit?: readonly string[] } = {},
   ): Promise<WikiPage | null> {
+    const found = await this.#sectionHtml(title, heading);
+    if (!found) return null;
+    const text = htmlToText(omitSubsections(found.html, options.omit ?? []));
+    const max = options.maxChars ?? 4_000;
+    return {
+      title: found.title,
+      url: pageUrl(found.title),
+      text: text.slice(0, max),
+      truncated: text.length > max,
+    };
+  }
+
+  /**
+   * The vendor rows of a page's `Sold by` tables, one per offer, so that what a
+   * Notes cell says stays with its vendor. Empty when the page or tables are
+   * missing; a table with merged or nested cells is left out.
+   */
+  async soldBy(title: string, heading = 'Acquisition'): Promise<SoldByRow[]> {
+    const found = await this.#sectionHtml(title, heading);
+    return found ? parseSoldBy(found.html) : [];
+  }
+
+  async #sectionHtml(title: string, heading: string): Promise<{ title: string; html: string } | null> {
     const index = await this.#call<{ parse?: { title: string; sections: { line: string; index: string }[] } }>({
       action: 'parse',
       prop: 'sections',
@@ -229,15 +260,7 @@ export class WikiClient {
       disablelimitreport: 1,
     });
     const html = data.parse?.text['*'];
-    if (html === undefined) return null;
-    const text = htmlToText(omitSubsections(html, options.omit ?? []));
-    const max = options.maxChars ?? 4_000;
-    return {
-      title: index.parse.title,
-      url: pageUrl(index.parse.title),
-      text: text.slice(0, max),
-      truncated: text.length > max,
-    };
+    return html === undefined ? null : { title: index.parse.title, html };
   }
 
   /**
@@ -501,10 +524,38 @@ function omitSubsections(html: string, headings: readonly string[]): string {
     .join('');
 }
 
+/** The rows of the vendor tables (`table.npc`) in rendered wiki HTML. */
+export function parseSoldBy(html: string): SoldByRow[] {
+  const rows: SoldByRow[] = [];
+  for (const [, table = ''] of html.matchAll(/<table\b[^>]*\bclass="npc\b[^"]*"[^>]*>([\s\S]*?)<\/table>/gi)) {
+    // A cell spanning rows or columns would shift what belongs to whom.
+    if (/<table\b|\b(row|col)span=/i.test(table)) continue;
+    let notes = -1;
+    for (const row of table.split(/<tr\b[^>]*>/i)) {
+      const headers = [...row.matchAll(/<th\b[^>]*>([\s\S]*?)<\/th>/gi)].map((m) => htmlToText(m[1]!).toLowerCase());
+      if (headers.length) {
+        notes = headers.indexOf('notes');
+        continue;
+      }
+      const cells = [...row.matchAll(/<td\b[^>]*>([\s\S]*?)<\/td>/gi)].map((m) => m[1]!);
+      // The vendor's name links their page; an icon before it links the same one.
+      const link = /<a\b[^>]*\bhref="\/wiki\/[^"]*"[^>]*\btitle="([^"]+)"/i.exec(cells[0] ?? '');
+      if (!link) continue;
+      rows.push({ vendor: decodeEntities(link[1]!), notes: htmlToText(cells[notes] ?? '').replace(/\n/g, ' ') });
+    }
+  }
+  return rows;
+}
+
+const ENTITIES: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: ' ', '#39': "'", '#039': "'", times: '×' };
+
+const decodeEntities = (text: string) =>
+  text.replace(/&(#?\w+);/g, (m, name: string) => ENTITIES[name] ?? (/^#\d+$/.test(name) ? String.fromCodePoint(Number(name.slice(1))) : m));
+
 /** Rendered wiki HTML as plain lines: headings, list items and table rows. */
 export function htmlToText(html: string): string {
-  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: ' ', '#39': "'", '#039': "'", times: '×' };
-  return html
+  return decodeEntities(
+    html
     .replace(/<(style|script|sup)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
     .replace(/<!--[\s\S]*?-->/g, '')
     // Long sections render their own table of contents; mark its entries to drop.
@@ -513,10 +564,8 @@ export function htmlToText(html: string): string {
     .replace(/<\/t[dh]>\s*(?=<t[dh]\b)/gi, ' | ')
     .replace(/<li\b[^>]*>/gi, '\n- ')
     .replace(/<\/?(p|div|tr|table|ul|ol|dl|dt|dd|h[1-6]|br)\b[^>]*>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
-    .replace(/&(#?\w+);/g, (m, name: string) =>
-      entities[name] ?? (/^#\d+$/.test(name) ? String.fromCodePoint(Number(name.slice(1))) : m),
-    )
+    .replace(/<[^>]+>/g, ''),
+  )
     .split('\n')
     .map((line) => line.replace(/\s+/g, ' ').trim())
     .filter((line) => line && line !== '-' && line !== 'Contents' && !line.includes('\u0000'))

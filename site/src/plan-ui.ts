@@ -275,13 +275,20 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     if (signature === shownGoals) return;
     shownGoals = signature;
     const focused = document.activeElement?.id;
-    goalList.replaceChildren(...goals.map((goal) => goalRow(goal, last)));
-    if (focused) document.getElementById(focused)?.focus();
+    goalList.replaceChildren(...goals.map((goal, at) => goalRow(goal, last, at, goals.length)));
+    if (focused) refocus(focused);
     showIcons();
     void loadIcons(goals.map((g) => g.itemId));
   }
 
-  function goalRow(goal: PlanGoal, last: boolean): HTMLLIElement {
+  /** Back to the control that had focus; a move button now at its end hands on to the other one. */
+  function refocus(id: string): void {
+    const node = document.getElementById(id) as HTMLButtonElement | null;
+    if (!node?.disabled) return node?.focus();
+    document.getElementById(id.replace(/-(up|down)-/, (_, way) => (way === 'up' ? '-down-' : '-up-')))?.focus();
+  }
+
+  function goalRow(goal: PlanGoal, last: boolean, at: number, count: number): HTMLLIElement {
     const icon = el('span', { className: 'item-icon' });
     icon.dataset.itemId = String(goal.itemId);
     const input = el('input');
@@ -300,7 +307,40 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     remove.setAttribute('aria-label', `Remove ${goal.name}`);
     remove.disabled = last;
     remove.addEventListener('click', () => removeGoal(goal));
-    return el('li', {}, icon, label, input, remove);
+    const move = (way: 'up' | 'down', symbol: string) => {
+      const button = el('button', { text: symbol });
+      button.type = 'button';
+      button.id = `plan-goal-${way}-${goal.itemId}`;
+      button.setAttribute('aria-label', `Move ${goal.name} ${way}`);
+      button.title = way === 'up' ? 'Make sooner' : 'Make later';
+      button.disabled = way === 'up' ? at === 0 : at === count - 1;
+      button.addEventListener('click', () => moveGoal(goal, way === 'up' ? -1 : 1));
+      return button;
+    };
+    // The order is the priority, which means nothing with one item.
+    const moves = count > 1 ? [move('up', '↑'), move('down', '↓')] : [];
+    return el('li', {}, icon, label, input, el('span', { className: 'plan-goal-actions' }, ...moves, remove));
+  }
+
+  function moveGoal(goal: PlanGoal, by: -1 | 1): void {
+    if (busy) return;
+    const goals: readonly PlanGoal[] = current?.plan.goals ?? pending;
+    const from = goals.findIndex((g) => g.itemId === goal.itemId);
+    const to = from + by;
+    if (from < 0 || to < 0 || to >= goals.length) return;
+    const moved = [...goals];
+    moved.splice(to, 0, ...moved.splice(from, 1));
+    const said = `Moved ${goal.name} ${by < 0 ? 'up' : 'down'}.`;
+    if (current) {
+      const id = document.activeElement?.id;
+      void change({ order: moved.map((g) => `i${g.itemId}`) }, goal.name, undefined, status).then(() => {
+        if (id && (document.activeElement === document.body || document.activeElement?.id === id)) refocus(id);
+      });
+      return;
+    }
+    pending = moved;
+    setStatus(status, said);
+    showGoals();
   }
 
   function setQuantity(goal: PlanGoal, input: HTMLInputElement): void {
@@ -406,7 +446,8 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
           );
           select.value = choice.selected;
           select.addEventListener('change', () => choose(choice, select.value));
-          const label = el('label', { text: choice.undecided ? `${choice.name} (not chosen yet)` : choice.name });
+          const state = choice.undecided ? ' (not chosen yet)' : choice.auto ? ' (picked for what you hold and need)' : '';
+          const label = el('label', { text: `${choice.name}${state}` });
           label.htmlFor = select.id;
           const rows: Node[] = [label, select];
           // Picking the assumed route fires no change event, so confirming it needs a button.

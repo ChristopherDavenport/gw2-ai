@@ -48,7 +48,7 @@ let plan = await createPlan(client, 30704, 1, { wiki });
 // Or several at once: createPlan(client, [{ itemId: 30704 }, { itemId: 19675, quantity: 77 }], 1, { wiki })
 plan = await addGoal(client, plan, 19675, 77, { wiki });            // later; an existing goal just gets more
 ({ plan } = updatePlan(plan, { quantities: { 'Mystic Clover': 0 } })); // new quantity, 0 removes the goal
-({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes, quantities, settings; returns `errors`
+({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes, quantities, order, settings; returns `errors`
 plan = withHoldings(plan, { items: { 19675: 77 }, wallet: {} });
 
 const { steps, coin } = solvePlan(plan);
@@ -57,6 +57,18 @@ parsePlan(JSON.stringify(plan));                                    // read one 
 ```
 
 `plan.goals` lists what is being made. Shared materials are summed across goals, and each step's `goals` says which of them need it. Run `addOtherOffers` after `addGoal` for the new goal's vendor offers, and read holdings again, since a plan keeps only those its graph used at the time. The plan format is version 2; `parsePlan` converts version 1 plans, which had a single `goal`.
+
+### Priority and holdings
+
+`plan.goals` is in priority order (`updatePlan(plan, { order: ['Bolt'] })` moves goals to the front). With holdings, `solvePlan` picks routes the player didn't choose by what they hold, earlier goals first; `step.usual` is then the default it passed over:
+
+- A vendor step takes the default offer if the stock and wallet left after other steps' demand cover it, else the best-ranked offer they cover, else the one shortest by least (a `vendorCurrency` default stays instead). Offers whose limits would make it slower are not taken.
+- With `useOwnMaterials`, buying and crafting are compared for the quantity needed, owned units valued at what selling them nets (buy order less fees, or vendor value) and the rest at purchase price. Daily crafts are never added this way. A step takes one route for its whole quantity.
+- Recipes in `data.pools` (Amalgamated Gemstone, from the bundled `FORGE_POOLS` snapshot) take any of a pool of items: spare ones first, in whole stacks, then the cheapest to buy. `step.inputs` lists the concrete items. Their yields are averages.
+
+Plans built before `data.pools` and item vendor values existed still solve, without the pool forge and counting vendor-only materials as worthless to sell.
+
+### Settings
 
 `settings` takes five booleans (defaults in `DEFAULT_PLAN_SETTINGS`):
 

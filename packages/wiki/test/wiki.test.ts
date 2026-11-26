@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { RateLimiter } from '@gw2kit/client';
 import { WikiClient } from '../src/index.js';
-import { htmlToText } from '../src/wiki.js';
+import { htmlToText, parseSoldBy } from '../src/wiki.js';
 
 // Real /api.php?action=ask response for outputs 19674 (Gift of Mastery) and 19675 (Mystic Clover).
 const FIXTURE = readFileSync(new URL('./fixtures/wiki-mystic-forge.json', import.meta.url), 'utf8');
@@ -154,5 +154,25 @@ describe('intros', () => {
     expect(found.get('noxious pod')).toBe('About noxious pod.');
     expect(found.has('gone')).toBe(false);
     expect(found.size).toBe(21);
+  });
+});
+
+describe('parseSoldBy', () => {
+  const row = (vendor: string, notes: string) =>
+    `<tr><td><a href="/wiki/${vendor}#vendor1" title="${vendor}"><img></a> <a href="/wiki/${vendor}" title="${vendor}">${vendor}</a></td>` +
+    `<td><a href="/wiki/Area" title="Area">Area</a><br />Other</td><td>${notes}\n</td></tr>`;
+  const table = (rows: string, head = 'npc sortable table') =>
+    `<table class="${head}"><tbody><tr><th>Vendor </th><th>Area </th><th>Notes </th></tr>${rows}</tbody></table>`;
+
+  it('keeps each note with its vendor', () => {
+    const html = table(row('Manfred', 'Limit 15 per week.') + row('New Year Rewards', 'Requires the festival <a href="/wiki/L">Lunar New Year</a>.<br />Limit 1 per week.'));
+    expect(parseSoldBy(`<p>Requires nothing.</p>${html}<table class="item table"><tr><td>x</td></tr></table>`)).toEqual([
+      { vendor: 'Manfred', notes: 'Limit 15 per week.' },
+      { vendor: 'New Year Rewards', notes: 'Requires the festival Lunar New Year. Limit 1 per week.' },
+    ]);
+  });
+
+  it('leaves out a table with merged cells', () => {
+    expect(parseSoldBy(table(row('A', 'Requires B.').replace('<td>', '<td rowspan="2">')))).toEqual([]);
   });
 });

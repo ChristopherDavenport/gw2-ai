@@ -11,8 +11,8 @@ const MAX_PLAN_OUTPUT = 48_000;
 
 const { day, num, table, text } = fmt;
 
-function render(plan: CraftingPlan, sections?: readonly PlanSectionId[], component?: string): string {
-  const md = renderPlan(plan, { ...(sections ? { sections } : {}), ...(component ? { component } : {}) });
+function render(plan: CraftingPlan, sections?: readonly PlanSectionId[], component?: string, goals?: number): string {
+  const md = renderPlan(plan, { ...(sections ? { sections } : {}), ...(component ? { component } : {}), ...(goals ? { goals } : {}) });
   return truncate(md, MAX_PLAN_OUTPUT, 'Use gw2_plan_show with `sections` or `component`.');
 }
 
@@ -83,10 +83,10 @@ export async function planCreate(
 
 export async function planShow(
   name: string | undefined,
-  options: { sections?: readonly PlanSectionId[] | undefined; component?: string | undefined } = {},
+  options: { sections?: readonly PlanSectionId[] | undefined; component?: string | undefined; firstGoals?: number | undefined } = {},
   dir = plansDir(),
 ): Promise<string> {
-  if (name !== undefined) return render(await loadPlan(name, dir), options.sections, options.component);
+  if (name !== undefined) return render(await loadPlan(name, dir), options.sections, options.component, options.firstGoals);
   const saved = await listPlans(dir);
   if (!saved.length) return `No saved plans in ${dir}. Start one with gw2_plan_create.`;
   const rows = saved.map((p) => [
@@ -103,6 +103,8 @@ export interface PlanUpdateArgs {
   add?: readonly GoalArgs[] | undefined;
   /** Goal → new quantity; 0 removes it. */
   quantities?: Record<string, number> | undefined;
+  /** Goals in their new priority order. */
+  order?: string[] | undefined;
   choose?: Record<string, string | null> | undefined;
   done?: string[] | undefined;
   undone?: string[] | undefined;
@@ -159,6 +161,7 @@ export async function planUpdate(
     ...(settings.length ? { settings: Object.fromEntries(settings) } : {}),
     ...(args.choose ? { choose: args.choose } : {}),
     ...(args.quantities ? { quantities: args.quantities } : {}),
+    ...(args.order ? { order: args.order } : {}),
     ...(args.done ? { done: args.done } : {}),
     ...(args.undone ? { undone: args.undone } : {}),
     ...(args.notes

@@ -4,6 +4,7 @@ export {
   pageUrl,
   type MysticForgeIngredient,
   type MysticForgeRecipe,
+  type SoldByRow,
   type VendorCaps,
   type VendorCost,
   type VendorOffer,

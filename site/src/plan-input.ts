@@ -102,7 +102,7 @@ function note(value: unknown, step: string): PlanNote | null {
   return out;
 }
 
-const FIELDS = ['choose', 'done', 'undone', 'notes', 'quantities', 'settings'];
+const FIELDS = ['choose', 'done', 'undone', 'notes', 'quantities', 'order', 'settings'];
 
 /**
  * The update in a pasted reply, checked for shape. Whether the steps and routes
@@ -137,6 +137,7 @@ export function parsePlanUpdate(text: string): PlanUpdate {
       }),
     );
   }
+  if (json.order !== undefined) update.order = strings(json.order, 'order');
   if (json.settings !== undefined) {
     update.settings = Object.fromEntries(
       entries(json.settings, 'settings').map(([name, value]) => {
@@ -149,6 +150,7 @@ export function parsePlanUpdate(text: string): PlanUpdate {
     Object.keys(update.settings ?? {}).length +
     Object.keys(update.quantities ?? {}).length +
     Object.keys(update.choose ?? {}).length +
+    (update.order?.length ?? 0) +
     (update.done?.length ?? 0) +
     (update.undone?.length ?? 0) +
     Object.keys(update.notes ?? {}).length;

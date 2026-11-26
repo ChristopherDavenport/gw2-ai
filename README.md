@@ -65,7 +65,17 @@ The servers are built on three libraries under the `@gw2kit` scope, usable on th
 
 For a goal that takes weeks, such as a legendary, ask the assistant to plan it. One plan can make several things at once, counting the materials they share once, and goals can be added, resized or removed later. A plan is a JSON document that renders to markdown: recipe choices to make, time gates, what to earn, buy and make, and wiki excerpts for the parts with no known source. The assistant builds it up in steps: `gw2_plan_create`, then your answers to the open decisions, then `gw2_plan_holdings` to subtract what you own, then notes and progress with `gw2_plan_update`. Plans are saved as files in `~/.local/share/gw2-ai/plans/` (`$XDG_DATA_HOME/gw2-ai/plans/` if set), shared by `gw2-data` and `gw2-account`.
 
-A model with no tools can work from the markdown pasted into a chat: the bottom of the plan shows a JSON update block (`choose`, `done`, `undone`, `notes`, `quantities`, `settings`) it can reply with.
+A model with no tools can work from the markdown pasted into a chat: the bottom of the plan shows a JSON update block (`choose`, `done`, `undone`, `notes`, `quantities`, `order`, `settings`) it can reply with.
+
+With your holdings counted, the plan follows them where you haven't chosen:
+
+- A vendor step takes an offer you can pay from your wallet and stock, after setting aside what other steps need. The usual offer stays when you can pay it.
+- Materials you own are used where that costs less than selling them (after the 15% fee, or to a vendor) and buying the result. The sales list holds back what the plan will use. It doesn't add days of daily crafting to save gold.
+- Amalgamated Gemstone can be forged from any mix of crests, orbs and doubloons, one item per stack: your spare ones first, then the cheapest to buy. The yields are averages. This is a snapshot bundled with the package; only families whose average yield the wiki states are included.
+- Vendor requirements (a mastery, a festival) are shown for the vendors named on the step only.
+- The order of the things to make is their priority: your materials and gold go to earlier ones first. The plan shows what each adds in turn; move them in the report site, with `order` in `gw2_plan_update`, or show only the first ones with `first_goals` in `gw2_plan_show`.
+
+Each step takes one route for its whole quantity: it isn't split between crafting from stock and buying the rest. Plans saved by an earlier version keep working; the gemstone forge, vendor values of your materials and per-vendor requirements need the plan rebuilt.
 
 ### Raising gold
 
@@ -141,6 +151,8 @@ const items = await gw2.many('/v2/items', [19721, 19976]);                      
 ```
 
 `gw2.raw(path)` is the untyped escape hatch; only the `gw2_api_get` and `gw2_account_get` MCP tools use it. The Mystic Forge promotions in `packages/core/src/promotions-data.ts` are a one-time wiki snapshot; nothing fetches them at run time. To refresh it after the game changes them:
+
+The pools of ingredients any Mystic Forge recipe accepts (`packages/recipes/src/forge-pools-data.ts`) are a snapshot too, from `node scripts/sync-forge-pools.mjs`; add a family there only when the wiki states its average yield.
 
 ```sh
 pnpm build
