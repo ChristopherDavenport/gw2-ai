@@ -83,10 +83,12 @@ Ask "what can I sell?" or "I need 200g". `gw2_raise_gold` on `gw2-account` lists
 
 By default it also checks whether materials raise more after one crafting or refining step (`craft`). Mystic Forge material promotions are checked when asked (`promote`): their yields are random, so the quantities and gold shown are averages, and the stones cost Spirit Shards. Looking up recipes takes about 20 seconds the first time. The report site has the same two options.
 
+With the `wallet` permission it also says what crafting from Imperial Favor could raise: weapons made from bought materials, Spirit Shards and Research Notes. They need gold up front, so they count only when asked (`upfront`, or "Include paths that need gold up front" on the site), and each is capped at about 10% of a week's trade.
+
 Its limits:
 
 - Only one conversion step is considered: one craft or one promotion, never a chain such as ore to ingot to a higher component.
-- There is no salvaging or currency conversion yet, even where that would pay more.
+- There is no salvaging, and the only currency conversion is the Imperial Favor crafting above.
 - Recipes that need discovery or an unlock are skipped unless the key has `unlocks` and shows them learned. Without `characters`, crafting ratings aren't checked.
 - Promotions come from a snapshot of the wiki bundled with the package, and some are missing from it (Pile of Crystalline Dust, for one).
 - Listed sales are not guaranteed: they pay only if a buyer takes them. Instant sales are priced from the buy orders of the moment.
@@ -151,6 +153,8 @@ const items = await gw2.many('/v2/items', [19721, 19976]);                      
 ```
 
 `gw2.raw(path)` is the untyped escape hatch; only the `gw2_api_get` and `gw2_account_get` MCP tools use it. The Mystic Forge promotions in `packages/core/src/promotions-data.ts` are a one-time wiki snapshot; nothing fetches them at run time. To refresh it after the game changes them:
+
+What each Imperial Favor weapon takes, and how many trade per day, is in `packages/core/src/currency-paths-data.ts`, from `node scripts/sync-currency-paths.mjs` (build, run, build again). Re-run it to refresh the volumes.
 
 The pools of ingredients any Mystic Forge recipe accepts (`packages/recipes/src/forge-pools-data.ts`) are a snapshot too, from `node scripts/sync-forge-pools.mjs`; add a family there only when the wiki states its average yield.
 

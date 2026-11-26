@@ -64,6 +64,7 @@ parsePlan(JSON.stringify(plan));                                    // read one 
 
 - A vendor step takes the default offer if the stock and wallet left after other steps' demand cover it, else the best-ranked offer they cover, else the one shortest by least (a `vendorCurrency` default stays instead). Offers whose limits would make it slower are not taken.
 - With `useOwnMaterials`, buying and crafting are compared for the quantity needed, owned units valued at what selling them nets (buy order less fees, or vendor value) and the rest at purchase price. Daily crafts are never added this way. A step takes one route for its whole quantity.
+- A tradeable item whose recipe chain also takes wallet currencies (Dragon's Weight, through Imperial Favor) is crafted when what remains of the wallet covers all of them and the gold part is cheaper than buying; `step.paid` says what it spends and saves. Short of something, or when the chain would wait on daily or weekly limits, it stays bought and `step.unpaid` says what crafting would save and what is missing. Crafting ratings and recipe unlocks are not checked.
 - Recipes in `data.pools` (Amalgamated Gemstone, from the bundled `FORGE_POOLS` snapshot) take any of a pool of items: spare ones first, in whole stacks, then the cheapest to buy. `step.inputs` lists the concrete items. Their yields are averages.
 
 Plans built before `data.pools` and item vendor values existed still solve, without the pool forge and counting vendor-only materials as worthless to sell.
