@@ -200,6 +200,7 @@ export function createServer(): McpServer {
             dailyCrafts: z.boolean().optional().describe('Craft the once-a-day items (default true).'),
             forgePromotions: z.boolean().optional().describe('Use Mystic Forge material promotions where cheaper in gold (default false).'),
             deductOwnedValue: z.boolean().optional().describe('State value net of owned materials (default true).'),
+            useBuyOrders: z.boolean().optional().describe('Price purchases at highest buy orders (default false).'),
           })
           .optional()
           .describe('Ask the player before changing these.'),

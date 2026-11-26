@@ -143,6 +143,8 @@ export interface FetchRecipeOptions {
    * take, into `RecipeData.promotions`. The tree solver ignores them.
    */
   promotions?: boolean;
+  /** Most vendor offers kept per item, best first. Default 5. */
+  maxOffers?: number;
 }
 
 export interface SolveRecipeOptions {
@@ -299,7 +301,10 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
     frontier = next;
   }
 
-  if (wiki && options.vendors !== false) await addVendors(client, wiki, data, searched, options.vendorCurrency ?? new Map());
+  if (wiki && options.vendors !== false) {
+    const unpriced = Object.keys(data.items).map(Number).filter((id) => unpricedLeaf(data, searched, id));
+    await addVendors(client, wiki, data, searched, unpriced, options);
+  }
   if (currencyIds.size > 0 && Object.keys(data.currencies).length === 0) await addCurrencies(client, data);
   if (upgradeIds.size > 0) {
     for (const [id, u] of await client.many('/v2/guild/upgrades', upgradeIds)) data.guildUpgrades[id] = u.name;
@@ -325,8 +330,27 @@ async function addCurrencies(client: Gw2Client, data: RecipeData): Promise<{ id:
   return currencies;
 }
 
+const unpricedLeaf = (data: RecipeData, searched: ReadonlySet<number>, id: number) =>
+  searched.has(id) && !has(data.recipes, id) && has(data.items, id) && data.items[id]!.sell === undefined;
+
 /**
- * Vendor offers for items with no recipe and no trading post price. Cost
+ * Vendor offers for items that have a recipe or a trading post listing, which
+ * fetchRecipeData skips: Mystic Coins and Clovers from the Wizard's Vault and
+ * weekly vendors. One wiki query per item. Adds to `data`.
+ */
+export async function addVendorOffers(
+  client: Gw2Client,
+  wiki: WikiClient,
+  data: RecipeData,
+  ids: readonly number[],
+  options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers'> = {},
+): Promise<void> {
+  const wanted = ids.filter((id) => has(data.items, id) && !has(data.vendors, id));
+  if (wanted.length) await addVendors(client, wiki, data, new Set(data.searched), wanted, options);
+}
+
+/**
+ * Vendor offers for `first` (items with no recipe and no trading post price). Cost
  * names are matched to wallet currencies (/v2/currencies) or to items (wiki
  * item pages); offers with a cost that matches neither are left out. Items
  * the chosen offer charges (Obsidian Shard for Funerary Incense) are looked
@@ -337,13 +361,14 @@ async function addVendors(
   wiki: WikiClient,
   data: RecipeData,
   searched: Set<number>,
-  prefer: ReadonlyMap<number, number>,
+  first: readonly number[],
+  options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers'>,
 ): Promise<void> {
-  const unpricedLeaf = (id: number) =>
-    searched.has(id) && !has(data.recipes, id) && has(data.items, id) && data.items[id]!.sell === undefined;
+  const prefer = options.vendorCurrency ?? new Map<number, number>();
+  const maxOffers = options.maxOffers ?? 1 + VENDOR_ALTERNATIVES;
   const looked = new Set<number>();
   const unmatched = new Set<number>();
-  let candidates = Object.keys(data.items).map(Number).filter(unpricedLeaf);
+  let candidates = [...first];
   let failures = 0;
   let attempts = 0;
   let lastError = '';
@@ -402,8 +427,10 @@ async function addVendors(
         unmatched.add(id);
         continue;
       }
-      data.vendors[id] = { url: pageUrl(pages.get(id)!), offers: ranked.slice(0, 1 + VENDOR_ALTERNATIVES) };
-      for (const c of ranked[0]!.costs) if (c.kind === 'Item' && !has(data.items, c.id)) costItems.add(c.id);
+      data.vendors[id] = { url: pageUrl(pages.get(id)!), offers: ranked.slice(0, maxOffers) };
+      // The tree only costs the first offer; keeping more means pricing what they charge too.
+      const priced = options.maxOffers ? ranked.slice(0, maxOffers) : ranked.slice(0, 1);
+      for (const c of priced.flatMap((o) => o.costs)) if (c.kind === 'Item' && !has(data.items, c.id)) costItems.add(c.id);
     }
 
     // Cost items are priced at the trading post and not crafted; unpriced ones go to the next round.
@@ -413,10 +440,11 @@ async function addVendors(
     }
     candidates = Object.values(data.vendors)
       .flatMap((v) => v.offers[0]!.costs.filter((c) => c.kind === 'Item').map((c) => c.id))
-      .filter(unpricedLeaf);
+      .filter((id) => !has(data.vendors, id) && unpricedLeaf(data, searched, id));
   }
-  data.vendorUnmatched = [...unmatched].sort((a, b) => a - b);
-  if (attempts) {
+  data.vendorUnmatched = [...new Set([...data.vendorUnmatched, ...unmatched])].sort((a, b) => a - b);
+  // A later pass must not hide an earlier one's failures.
+  if (attempts && (failures > 0 || !data.status.vendors)) {
     data.status.vendors = failures === 0 ? { status: 'ok' } : { status: failures >= attempts ? 'failed' : 'partial', error: lastError };
   }
 }

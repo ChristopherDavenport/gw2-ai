@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { RateLimiter } from '@gw2kit/client';
 import { updatePlan, type CraftingPlan } from '@gw2kit/recipes';
 import { WikiClient } from '@gw2kit/wiki';
-import { renderPlan, researchPlan } from '../src/index.js';
+import { renderPlan, researchPlan, parseSources } from '../src/index.js';
 import { swordPlan } from './plan-fixture.js';
 
 /** Pages by title: an HTML Acquisition section, and an intro naming the page. */
@@ -34,10 +34,9 @@ describe('researchPlan', () => {
     const html = '<h2>Acquisition</h2><h3>Sold by</h3><ul><li>Vendor A</li></ul><h3>Gathered from</h3><ul><li>Noxious Pod (chance)</li></ul>';
     const { plan, failed } = await researchPlan(vendorPlan(), wiki({ 'Desert Gift': html }));
     expect(failed).toEqual([]);
-    expect(plan.research?.i3?.text).toBe(
-      'Desert Gift intro.\nMore.\nAcquisition\nGathered from\n- Noxious Pod (chance)\nAbout Noxious Pod: Noxious Pod intro.',
-    );
-    expect(renderPlan(plan, { sections: ['vendor'] })).toContain('> - Noxious Pod (chance)');
+    expect(plan.research?.i3?.text).toBe('Desert Gift intro.\nMore.\nAcquisition\nGathered from\n- Noxious Pod (chance)');
+    expect(plan.research?.i3?.sources).toEqual([{ kind: 'gathered', name: 'Noxious Pod', detail: 'chance', about: 'Noxious Pod intro.' }]);
+    expect(renderPlan(plan, { sections: ['vendor'] })).toContain('  - Collect on the map:\n    - Noxious Pod (chance): Noxious Pod intro.');
   });
 
   it('skips a vendor item with no other source, unless it is named', async () => {
@@ -54,5 +53,26 @@ describe('researchPlan', () => {
     const noted = updatePlan(first.plan, { notes: { 'Desert Gift': { text: 'Meta' } } }).plan;
     expect((await researchPlan(noted, wiki({}))).plan.research).toEqual(first.plan.research);
     expect((await researchPlan(swordPlan(), wiki({}), { only: ['Nothing'] })).failed).toEqual(['nothing']);
+  });
+});
+
+describe('parseSources', () => {
+  it('lists map and container sources once each, with their odds', () => {
+    const section = [
+      'Acquisition',
+      'Gathered from',
+      '- Exalted Chest (chance)',
+      '- Exalted Chest (5, 10) (chance)',
+      '- Glorious Chest (Wyvern Matriarch) (1-11) (guaranteed)',
+      'Contained in',
+      "- Dragon's Stand: Hero's Choice Chest (choice)",
+      'Rewarded by',
+      '- Act 1',
+    ].join('\n');
+    expect(parseSources(section)).toEqual([
+      { kind: 'gathered', name: 'Exalted Chest', detail: 'chance, 5, 10' },
+      { kind: 'gathered', name: 'Glorious Chest (Wyvern Matriarch)', detail: '1-11, guaranteed' },
+      { kind: 'contained', name: "Dragon's Stand: Hero's Choice Chest", detail: 'choice' },
+    ]);
   });
 });

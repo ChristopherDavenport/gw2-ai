@@ -17,7 +17,9 @@ export {
   type TreeVendor,
   type TreeVendorOffer,
 } from './tree.js';
+export { addVendorOffers } from './tree.js';
 export {
+  buyPrice,
   createPlan,
   DEFAULT_PLAN_SETTINGS,
   planSettings,
@@ -35,6 +37,7 @@ export {
   type PlanResearch,
   type PlanRoute,
   type PlanSettings,
+  type PlanSource,
   type PlanStep,
   type PlanUpdate,
   type SolvedPlan,

@@ -1,6 +1,6 @@
 import type { Gw2Client } from '@gw2kit/client';
 import type { VendorCaps } from '@gw2kit/wiki';
-import { fetchRecipeData, type FetchRecipeOptions, type RecipeData, type SourceRecipe, type TreeVendorOffer } from './tree.js';
+import { addVendorOffers, fetchRecipeData, type FetchRecipeOptions, type RecipeData, type SourceRecipe, type TreeVendorOffer } from './tree.js';
 
 /**
  * A crafting plan: the recipe graph as fetched, plus what the player decided,
@@ -37,6 +37,8 @@ export interface PlanSettings {
   forgePromotions: boolean;
   /** State the plan's value net of the materials you own, not including them. */
   deductOwnedValue: boolean;
+  /** Price trading post purchases at the highest buy order instead of buying at once. */
+  useBuyOrders: boolean;
 }
 
 export const DEFAULT_PLAN_SETTINGS: Readonly<PlanSettings> = {
@@ -44,6 +46,7 @@ export const DEFAULT_PLAN_SETTINGS: Readonly<PlanSettings> = {
   dailyCrafts: true,
   forgePromotions: false,
   deductOwnedValue: true,
+  useBuyOrders: false,
 };
 
 export const planSettings = (plan: CraftingPlan): PlanSettings => ({ ...DEFAULT_PLAN_SETTINGS, ...plan.settings });
@@ -60,6 +63,22 @@ export interface PlanHoldings {
 export interface PlanResearch {
   text: string;
   source: string;
+  /** Places to get the item that aren't vendors or recipes, when the wiki lists them. */
+  sources?: PlanSource[];
+  /** The whole answer when the wiki states one, e.g. `Completing the map Auric Basin.` */
+  method?: string;
+  /** What vendors demand before selling, e.g. a mastery. */
+  requires?: string[];
+}
+
+export interface PlanSource {
+  /** `gathered`: collected out in the world. `contained`: from a container, including choice chests. */
+  kind: 'gathered' | 'contained';
+  name: string;
+  /** Quantity and odds as the wiki gives them, e.g. `1-10, chance`. */
+  detail?: string;
+  /** What and where it is. */
+  about?: string;
 }
 
 export interface PlanNote {
@@ -185,8 +204,35 @@ export async function createPlan(
   options: FetchRecipeOptions = {},
 ): Promise<CraftingPlan> {
   // Promotions are fetched so the setting can be flipped later without a rebuild.
-  const data = await fetchRecipeData(client, itemId, { promotions: true, ...options });
-  return planFromData(data, quantity);
+  const data = await fetchRecipeData(client, itemId, { promotions: true, maxOffers: PLAN_OFFERS, ...options });
+  const plan = planFromData(data, quantity);
+  if (options.wiki && options.vendors !== false) {
+    await addVendorOffers(client, options.wiki, data, worthAnotherRoute(plan), { maxOffers: PLAN_OFFERS, ...options });
+  }
+  return plan;
+}
+
+/** Vendor offers kept per item: enough for every map's exchange. */
+const PLAN_OFFERS = 20;
+/** The biggest purchases that are also looked up at vendors. */
+const PRICIEST_BUYS = 8;
+
+/**
+ * Items the graph already has a route for where a vendor is worth knowing
+ * about: bound forge results (Mystic Clover) and the biggest purchases.
+ */
+function worthAnotherRoute(plan: CraftingPlan): number[] {
+  const steps = solvePlan(plan).steps.filter((s) => s.kind === 'Item' && s.id !== plan.goal.itemId);
+  const forged = steps.filter((s) => s.action === 'forge' && s.bound);
+  const bought = steps.filter((s) => s.action === 'buy').sort((a, b) => b.coin - a.coin).slice(0, PRICIEST_BUYS);
+  return [...forged, ...bought].map((s) => s.id);
+}
+
+/** What a trading post purchase of `id` costs per unit under the plan's settings. */
+export function buyPrice(plan: CraftingPlan, id: number): number | undefined {
+  const item = plan.data.items[id];
+  if (item?.sell === undefined) return undefined;
+  return planSettings(plan).useBuyOrders ? (item.buy ?? item.sell) : item.sell;
 }
 
 export function planFromData(data: RecipeData, quantity = 1): CraftingPlan {
@@ -373,7 +419,7 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
     }
     path.delete(key);
 
-    const sell = data.items[id]?.sell;
+    const sell = buyPrice(plan, id);
     const buy = sell === undefined ? undefined : leaf('buy', sell, true);
     // Earning something tradeable still gives up its price, so compare it at that.
     const earn = leaf('earn', sell ?? 0, sell !== undefined);
@@ -382,13 +428,14 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
     const picked = options.find((r) => r.key === plan.choices[key]);
     let route: PlanRoute;
     let undecided = false;
-    if (picked) route = picked;
+    // A chosen vendor for something tradeable is still compared at its price, so its parent stays made.
+    if (picked) route = !picked.priced && sell !== undefined && picked.action === 'vendor' ? { ...picked, unitCost: sell, priced: true } : picked;
     else if (key !== goal && buy) route = made[0]?.priced && made[0].unitCost < buy.unitCost ? made[0] : buy;
     else {
       route = made[0] ?? vended[0] ?? buy ?? earn;
       undecided = made.length > 1 && !made[0]!.priced;
     }
-    const result = { route, options: options.filter((r) => r !== route), undecided };
+    const result = { route, options: options.filter((r) => r.key !== route.key), undecided };
     memo.set(key, result);
     return result;
   };
@@ -467,7 +514,7 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
       components.set(input.key, theirs);
     }
 
-    const sell = kind === 'Item' ? data.items[id]?.sell : undefined;
+    const sell = kind === 'Item' ? buyPrice(plan, id) : undefined;
     let spent = 0;
     if (route.action === 'buy' && count > 0) spent = (sell ?? 0) * count;
     // The coin part of a vendor price is counted here, not as a step.
