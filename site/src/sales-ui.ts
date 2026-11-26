@@ -3,7 +3,7 @@
  * account holds is account data: it stays in memory and is never stored.
  */
 import { missingPermissions, type Gw2Client, type TokenInfo } from '@gw2kit/client';
-import { planSales, readConversions, readSellables, renderSales, type SaleOptions, type Sellables } from '@gw2-ai/core';
+import { planSales, readConversions, readSalesPaths, readSellables, renderSales, type SaleOptions, type SalesPathData, type Sellables } from '@gw2-ai/core';
 import { ConversionReads, type ConversionKind, type ConversionWants } from './conversions.js';
 import { $, describeError, downloadText, setStatus, setupTabs, startClock } from './dom.js';
 import { salesFilename } from './filename.js';
@@ -35,6 +35,20 @@ export function readConvertControls(prefix: string): ConversionWants {
   return { craft: $<HTMLInputElement>(`${prefix}-craft`).checked, promote: $<HTMLInputElement>(`${prefix}-promote`).checked };
 }
 
+/** The `<prefix>-upfront` box and the paths read for it, as planSales options. */
+export function pathOptions(prefix: string, paths: AccountSales['paths']): Pick<SaleOptions, 'paths' | 'upfront'> {
+  return paths.data ? { paths: paths.data, upfront: $<HTMLInputElement>(`${prefix}-upfront`).checked } : {};
+}
+
+/** Paths that spend currencies can't be had without the wallet. */
+export function showUpfront(prefix: string, token: TokenInfo | undefined): void {
+  const missing = !token || missingPermissions(token.permissions, ['wallet']).length > 0;
+  const box = $<HTMLInputElement>(`${prefix}-upfront`);
+  box.disabled = missing;
+  if (missing) box.checked = false;
+  $(`${prefix}-upfront-hint`).textContent = missing ? 'Paths that need gold up front need a key with the wallet permission.' : '';
+}
+
 /** What to say while `kinds` are being read. */
 export const checkingText = (kinds: readonly ConversionKind[]): string =>
   kinds.includes('craft')
@@ -45,16 +59,21 @@ export const checkingText = (kinds: readonly ConversionKind[]): string =>
 export interface AccountSales {
   sellables: Sellables;
   conversions: ConversionReads;
+  /** Crafting paths paid in wallet currencies, with their prices. */
+  paths: { data?: SalesPathData; notes: string[] };
 }
 
 /** Read what the account could sell. Conversions are read when first asked for. */
 export async function readAccountSellables({ client, token }: Account): Promise<AccountSales> {
   const info = token ?? (await client.get('/v2/tokeninfo'));
-  const sellables = await readSellables(client, info.permissions);
+  const [sellables, paths] = await Promise.all([
+    readSellables(client, info.permissions),
+    readSalesPaths(client, info.permissions).catch(() => ({ notes: ['paths that spend wallet currencies could not be checked'] })),
+  ]);
   const conversions = new ConversionReads((kind) =>
     readConversions(client, info.permissions, sellables.items, { craft: kind === 'craft', promote: kind === 'promote' }),
   );
-  return { sellables, conversions };
+  return { sellables, conversions, paths };
 }
 
 export function initSalesSection(options: { account(): Account | undefined; cache: { flush(): Promise<void> } }): {
@@ -98,10 +117,11 @@ export function initSalesSection(options: { account(): Account | undefined; cach
             ? 'without `unlocks`, only automatically learned recipes are considered'
             : '',
           missingPermissions(token.permissions, ['wallet']).length
-            ? 'without `wallet`, Spirit Shards for promotions are not checked'
+            ? 'without `wallet`, Spirit Shards for promotions are not checked and no currency is spent on crafting to sell'
             : '',
         ].filter(Boolean)
       : [];
+    showUpfront('sales', token);
     hint.textContent = blocked ?? (gaps.length ? `Your key is missing some optional permissions: ${gaps.join('; ')}.` : '');
   }
 
@@ -130,10 +150,11 @@ export function initSalesSection(options: { account(): Account | undefined; cach
       ...sale,
       ...(target === undefined ? {} : { target }),
       ...(conversions ? { conversions } : {}),
+      ...pathOptions('sales', read.paths),
     });
     const markdown = `${renderSales(plan, {
       ...(sellables.delivery ? { delivery: sellables.delivery } : {}),
-      notes: [...sellables.notes, ...notes],
+      notes: [...sellables.notes, ...notes, ...read.paths.notes],
     })}\n`;
     raw.value = markdown;
     preview.replaceChildren(renderMarkdown(markdown));

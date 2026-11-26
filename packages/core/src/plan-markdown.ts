@@ -88,7 +88,20 @@ function offerText(step: PlanStep): string {
 function pickedText(step: PlanStep): string {
   const usual = step.usual;
   if (!usual || !step.route) return '';
-  return `\n  - Picked for what you hold and need, in place of: ${text(routeLabel(usual, [usual, step.route]))}`;
+  const why = step.paid
+    ? `Picked because your wallet covers ${step.paid.spends.map((i) => amount(i.count, i.name)).join(', ')} after the rest of the plan, ` +
+      `and crafting is then about ${coins(step.paid.saves)} cheaper in gold (your own materials counted at what they would sell for)`
+    : 'Picked for what you hold and need';
+  return `\n  - ${why}, in place of: ${text(routeLabel(usual, [usual, step.route]))}`;
+}
+
+/** On a step still bought: what a craft paid in currencies would save, and what stands in the way. */
+function unpaidText(step: PlanStep): string {
+  const u = step.unpaid;
+  if (!u) return '';
+  const missing = u.missing.map((i) => amount(i.count, i.name)).join(', ');
+  const why = [missing ? `you are short ${missing}` : '', u.gated ? 'it would wait on daily or weekly limits' : ''].filter(Boolean).join(', and ');
+  return `\n  - Crafting would save about ${coins(u.saves)} in gold, but ${why}.`;
 }
 
 const box = (step: PlanStep) => `- [${step.count === 0 ? 'x' : ' '}]`;
@@ -234,8 +247,8 @@ function buy(steps: PlanStep[], plan: CraftingPlan, averaged: ReadonlySet<StepKe
       const other_ = ordering ? item?.sell : item?.buy;
       const order = other_ ? `; ${ordering ? 'buying at once' : 'by buy order'} ≈ ${coins(other_ * s.count)}` : '';
       const make = s.options.find((o) => o.action === 'craft' || o.action === 'forge');
-      const other = make && !make.priced ? `\n  - Can also be made, at a cost gold can't compare: ${routeLabel(make, [make])}` : '';
-      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      const other = make && !make.priced && !s.unpaid ? `\n  - Can also be made, at a cost gold can't compare: ${routeLabel(make, [make])}` : '';
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${unpaidText(s)}${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -289,7 +302,7 @@ function makeLine(s: PlanStep): string {
         : ''
       : ` (${recipe.disciplines.join('/')} ${recipe.min_rating})`;
   const used = pool ? poolText(s, pool) : inputText(s);
-  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${used}${pickedText(s)}${noteText(s)}${offerText(s)}`;
+  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${used}${pickedText(s)}${unpaidText(s)}${noteText(s)}${offerText(s)}`;
 }
 
 /** A pool forge's inputs: the fixed ones, then which items make up the pool's share. */

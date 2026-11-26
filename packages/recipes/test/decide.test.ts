@@ -207,3 +207,64 @@ describe('goal priority', () => {
     expect(errors).toEqual(['"Hilt" is not something this plan makes.', 'No step named "Nope".']);
   });
 });
+
+// A hammer (136s to buy) is crafted from ore and a blessing, which only favor buys.
+function hammer(): CraftingPlan {
+  const data = empty({ 1: { name: 'Anvil' }, 5: { name: 'Hammer', sell: 1000, buy: 900 }, 6: { name: 'Ore', sell: 100, buy: 90 }, 7: { name: 'Blessing', bound: true } });
+  data.currencies[68] = 'Imperial Favor';
+  data.currencies[23] = 'Spirit Shard';
+  data.recipes = { 1: [recipe(1, [[5, 1]])], 5: [recipe(5, [[6, 2], [7, 1]])] };
+  data.vendors = { 7: { url: 'u', offers: [offer(currency(68, 500), currency(23, 5))] } };
+  return planFromData(data);
+}
+
+describe('currency-paid crafting', () => {
+  const enough = { 68: 500, 23: 5 };
+
+  it('is picked when the wallet covers the whole chain and the gold is less', () => {
+    expect(step(solvePlan(hammer()), 'i5').action).toBe('buy');
+    const solved = solvePlan(own(hammer(), {}, enough));
+    expect(step(solved, 'i5')).toMatchObject({
+      action: 'craft',
+      usual: { key: 'buy' },
+      paid: { saves: 800, spends: [{ key: 'c68', count: 500 }, { key: 'c23', count: 5 }] },
+    });
+    expect(solved.coin).toBe(200);
+  });
+
+  it('keeps buying when short, saying what it would save and what is missing', () => {
+    const bought = step(solvePlan(own(hammer(), {}, { 68: 500, 23: 2 })), 'i5');
+    expect(bought.action).toBe('buy');
+    expect(bought.unpaid).toEqual({ saves: 800, missing: [{ key: 'c23', name: 'Spirit Shard', count: 3 }], gated: false });
+  });
+
+  it('leaves what other steps need, and respects a choice', () => {
+    const shared = hammer();
+    shared.data.recipes[1] = [{ ...recipe(1, [[5, 1]]), ingredients: [{ type: 'Item', id: 5, count: 1 }, { type: 'Currency', id: 23, count: 1 }] }];
+    expect(step(solvePlan(own(shared, {}, enough)), 'i5').action).toBe('buy');
+    expect(step(solvePlan(own(shared, {}, { 68: 500, 23: 6 })), 'i5').action).toBe('craft');
+    const chosen = updatePlan(own(hammer(), {}, enough), { choose: { Hammer: 'buy' } }).plan;
+    expect(step(solvePlan(chosen), 'i5')).toMatchObject({ action: 'buy' });
+    expect(step(solvePlan(chosen), 'i5').unpaid).toBeUndefined();
+  });
+
+  it('gives the currency to the earlier goal, and does not take on daily crafts', () => {
+    const two = hammer();
+    two.data.items[2] = { name: 'Forge' };
+    two.data.items[8] = { name: 'Maul', sell: 1000 };
+    two.data.recipes[2] = [recipe(2, [[8, 1]])];
+    two.data.recipes[8] = [recipe(8, [[6, 2], [7, 1]])];
+    two.goals = [{ itemId: 1, name: 'Anvil', quantity: 1 }, { itemId: 2, name: 'Forge', quantity: 1 }];
+    const plan = own(two, {}, enough);
+    expect([step(solvePlan(plan), 'i5').action, step(solvePlan(plan), 'i8').action]).toEqual(['craft', 'buy']);
+    const swapped = updatePlan(plan, { order: ['Forge'] }).plan;
+    expect([step(solvePlan(swapped), 'i5').action, step(solvePlan(swapped), 'i8').action]).toEqual(['buy', 'craft']);
+
+    // Two Charged Quartz Crystals take two days.
+    const gated = hammer();
+    gated.data.items[43772] = { name: 'Crystal', bound: true };
+    gated.data.recipes[43772] = [recipe(9, [[6, 1]])];
+    gated.data.recipes[5] = [recipe(5, [[43772, 2], [7, 1]])];
+    expect(step(solvePlan(own(gated, {}, enough)), 'i5')).toMatchObject({ action: 'buy', unpaid: { gated: true, missing: [] } });
+  });
+});

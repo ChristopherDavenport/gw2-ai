@@ -17,7 +17,7 @@ import { renderMarkdown } from './markdown.js';
 import { parseEntry, parsePlanUpdate, parseQuantity, MAX_QUANTITY, QUANTITY_ERROR, type Entry, type Goal } from './plan-input.js';
 import { addToSelection, iconUrl, type SelectedGoal } from './plan-selection.js';
 import { deletePlan, loadPlan, savePlan, withoutHoldings } from './plan-store.js';
-import { checkingText, keepWarning, readAccountSellables, readConvertControls, readSaleControls, type Account, type AccountSales } from './sales-ui.js';
+import { checkingText, keepWarning, pathOptions, readAccountSellables, readConvertControls, readSaleControls, showUpfront, type Account, type AccountSales } from './sales-ui.js';
 
 /** Far above any real plan; stops a wrong file from freezing the page. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
@@ -152,6 +152,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     sellRow.hidden = holdingsBlocker() !== undefined;
     sellToggle.checked = selling !== undefined;
     sellBox.hidden = selling === undefined;
+    showUpfront('plan-sales', options.account()?.token);
     const sellables = selling?.read?.sellables;
     if (!sellables) {
       sellHint.textContent = '';
@@ -189,9 +190,10 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       ...readSaleControls('plan-sales'),
       delivery,
       ...(converted.conversions ? { conversions: converted.conversions } : {}),
+      ...pathOptions('plan-sales', read.paths),
     });
     return renderPlan(plan, {
-      sales: { plan: sales, notes: [...notes, ...converted.notes], ...(delivery ? { delivery } : {}) },
+      sales: { plan: sales, notes: [...notes, ...converted.notes, ...read.paths.notes], ...(delivery ? { delivery } : {}) },
     });
   }
 

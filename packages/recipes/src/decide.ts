@@ -1,8 +1,9 @@
 /**
  * Routes that follow what the player holds, worked out while solving: which
  * vendor offer they can pay, whether materials they own are better used than
- * sold, and what fills a recipe that takes any of a pool of items. Choices the
- * player made are never changed. Pure.
+ * sold, what fills a recipe that takes any of a pool of items, and whether a
+ * craft paid partly in wallet currencies beats buying. Choices the player made
+ * are never changed. Pure.
  */
 import { sellProceeds } from './fees.js';
 import { buyPrice, DAILY_ITEMS, planSettings, type Choice, type CraftingPlan, type PlanInput, type PlanRoute, type PlanStep, type Solution, type StepKey } from './plan.js';
@@ -19,9 +20,28 @@ export interface Decisions {
   routes: Map<StepKey, PlanRoute>;
   /** Pool routes' ingredients. Without one, all of them are the cheapest to buy. */
   fills: Map<StepKey, PoolFill>;
+  /** Steps crafted because the currencies for it are held and that costs less gold. */
+  paid: Map<StepKey, CurrencyCraft>;
+  /** Steps still bought where such a craft would cost less gold if it could be had. */
+  unpaid: Map<StepKey, CurrencyShortfall>;
 }
 
-export const NO_DECISIONS: Decisions = { routes: new Map(), fills: new Map() };
+export interface CurrencyCraft {
+  /** Copper saved over what the step would otherwise do. */
+  saves: number;
+  /** Currencies the whole chain takes. */
+  spends: PlanInput[];
+}
+
+export interface CurrencyShortfall {
+  saves: number;
+  /** What is not held: currencies, and items that can't be bought. */
+  missing: PlanInput[];
+  /** The chain would also wait on once-a-day crafts or purchase limits. */
+  gated: boolean;
+}
+
+export const NO_DECISIONS: Decisions = { routes: new Map(), fills: new Map(), paid: new Map(), unpaid: new Map() };
 
 /** The inputs of `times` forges of a pool route. */
 export function poolInputs(data: RecipeData, route: PlanRoute, times: number, fill: PoolFill | undefined): PlanInput[] {
@@ -73,7 +93,12 @@ interface Quote {
   used: boolean;
   /** It takes days: more than one of a once-a-day item has to be made. */
   gated?: boolean;
+  /** Only when covering: currencies taken from the wallet, and what it lacks. */
+  spent?: Map<StepKey, number>;
+  missing?: Map<StepKey, number>;
 }
+
+const addTo = (into: Map<StepKey, number>, key: StepKey, count: number) => into.set(key, (into.get(key) ?? 0) + count);
 
 export function decide(
   plan: CraftingPlan,
@@ -85,7 +110,8 @@ export function decide(
   const ownItems = settings.useOwnMaterials && Object.keys(holdings.items).length > 0;
   const hasStock = ownItems || Object.keys(holdings.wallet).length > 0;
   const hasPools = Object.keys(data.pools ?? {}).length > 0;
-  const decisions: Decisions = { routes: new Map(), fills: new Map() };
+  const decisions: Decisions = { routes: new Map(), fills: new Map(), paid: new Map(), unpaid: new Map() };
+  const hasWallet = Object.keys(holdings.wallet).length > 0;
   if (!hasStock && !hasPools) return decisions;
 
   const goals = new Map(plan.goals.map((g, i) => [`i${g.itemId}`, i]));
@@ -153,25 +179,45 @@ export function decide(
     return { owned: owned.map(({ key, count }) => ({ key, count })), buy };
   };
 
-  /** Gold-equivalent cost of `count` units by `route`, taking from `stock` as it goes. */
-  const quoteRoute = (route: PlanRoute, count: number, stock: Stock, path: Set<StepKey>): Quote => {
+  /**
+   * Gold-equivalent cost of `count` units by `route`, taking from `stock` as it
+   * goes. `cover`: currencies come out of the wallet at no gold cost, and what
+   * it lacks is listed rather than leaving the price incomplete without saying.
+   */
+  const quoteRoute = (route: PlanRoute, count: number, stock: Stock, path: Set<StepKey>, cover = false): Quote => {
     const times = timesFor(count, route.output);
     const total: Quote = { cost: 0, priced: true, used: false };
     const inputs = route.pool ? poolInputs(data, route, times, fillFor(route, stock.left)) : route.inputs.map((i) => ({ ...i, count: i.count * times }));
     for (const input of inputs) {
-      const q = quoteItem(input.key, input.count, stock, path);
+      const q = quoteItem(input.key, input.count, stock, path, cover);
       total.cost += q.cost;
       // A promotion's stones cost Spirit Shards, which turning promotions on accepts.
       total.priced &&= q.priced || (route.promotion === true && (input.key === 'i20796' || input.key === 'i20799'));
       total.used ||= q.used;
       if (q.gated) total.gated = true;
+      for (const field of ['spent', 'missing'] as const) {
+        for (const [key, amount] of q[field] ?? []) addTo((total[field] ??= new Map()), key, amount);
+      }
     }
+    // A vendor's purchase limit makes it a matter of days.
+    if (cover && route.action === 'vendor' && offerDays(route.offer!, times) > 0) total.gated = true;
     return total;
   };
 
-  const quoteItem = (key: StepKey, count: number, stock: Stock, path: Set<StepKey>): Quote => {
+  const quoteItem = (key: StepKey, count: number, stock: Stock, path: Set<StepKey>, cover: boolean): Quote => {
     if (key === 'c1') return { cost: count, priced: true, used: false };
-    if (!key.startsWith('i')) return { cost: 0, priced: false, used: false };
+    if (!key.startsWith('i')) {
+      if (!cover) return { cost: 0, priced: false, used: false };
+      const have = Math.max(0, Math.min(stock.left(key), count));
+      stock.take(key, have);
+      return {
+        cost: 0,
+        priced: have === count,
+        used: false,
+        ...(have ? { spent: new Map([[key, have]]) } : {}),
+        ...(have < count ? { missing: new Map([[key, count - have]]) } : {}),
+      };
+    }
     if (done.has(key)) return { cost: 0, priced: true, used: false };
     const own = Math.min(stock.left(key), count);
     stock.take(key, own);
@@ -187,7 +233,7 @@ export function decide(
     let candidates = [fallback];
     if (!chosen(key) && path.size <= DEPTH) {
       // A once-a-day item is not turned into a craft, only the other way.
-      candidates = [...new Set([fallback, ...comparable(key).filter((r) => !daily || r.action === 'buy')])];
+      candidates = [...new Set([fallback, ...comparable(key).filter((r) => !daily || r.action === 'buy'), ...(cover ? offers(key) : [])])];
     }
     let best: { quote: Quote; stock: Stock } | undefined;
     let used = false;
@@ -195,8 +241,10 @@ export function decide(
       const trial = stock.copy();
       let q: Quote;
       if (route.action === 'buy') q = { cost: (price ?? 0) * rest, priced: price !== undefined, used: false };
-      else if (route.action === 'earn' || path.size > DEPTH + 3) q = { cost: route.unitCost * rest, priced: route.priced, used: false };
-      else q = quoteRoute(route, rest, trial, new Set(path).add(key));
+      else if (route.action === 'earn' || path.size > DEPTH + 3) {
+        q = { cost: route.unitCost * rest, priced: route.priced, used: false };
+        if (cover && !route.priced) q.missing = new Map([[key, rest]]);
+      } else q = quoteRoute(route, rest, trial, new Set(path).add(key), cover);
       if (daily && rest > 1 && (route.action === 'craft' || route.action === 'vendor')) q = { ...q, gated: true };
       used ||= q.used;
       if (!best || better(q, best.quote)) best = { quote: q, stock: trial };
@@ -204,6 +252,44 @@ export function decide(
     stock.set(best!.stock);
     return { ...best!.quote, cost: held.cost + best!.quote.cost, used: held.used || used };
   };
+
+  /**
+   * Whether crafting something that takes wallet currencies beats what `key`
+   * does at `cost` gold: taken when everything but the gold is covered by what
+   * remains, otherwise noted.
+   */
+  const payWithCurrency = (key: StepKey, count: number, cost: number, remaining: (key: StepKey) => number): PlanRoute | undefined => {
+    const crafts = comparable(key).filter(
+      (r) => (r.action === 'craft' || r.action === 'forge') && !r.promotion && !r.inputs.some((i) => reaches(i.key, key)),
+    );
+    const daily = DAILY_ITEMS.has(itemId(key));
+    const quotes = (daily ? [] : crafts).flatMap((route) => {
+      const quote = quoteRoute(route, count, new Stock(remaining), new Set([key]), true);
+      // Without a currency in it, the plain gold comparison already covers it.
+      const currency = [...(quote.spent?.keys() ?? []), ...(quote.missing?.keys() ?? [])].some((k) => k.startsWith('c'));
+      return currency && quote.cost < cost - 0.5 ? [{ route, quote }] : [];
+    });
+    if (!quotes.length) return undefined;
+    const list = (amounts: Map<StepKey, number> | undefined): PlanInput[] =>
+      [...(amounts ?? [])].map(([k, n]) => ({ key: k, name: nameOf(k), count: n }));
+    const cheapest = (a: (typeof quotes)[number], b: (typeof quotes)[number]) => (b.quote.cost < a.quote.cost ? b : a);
+    const covered = quotes.filter((q) => q.quote.priced && !q.quote.gated);
+    if (covered.length) {
+      const { route, quote } = covered.reduce(cheapest);
+      decisions.paid.set(key, { saves: cost - quote.cost, spends: list(quote.spent) });
+      return route;
+    }
+    // Something with no gold price and no way to say what is short is left alone.
+    const short = quotes.filter((q) => q.quote.missing?.size || (q.quote.priced && q.quote.gated));
+    if (short.length) {
+      const { quote } = short.reduce(cheapest);
+      decisions.unpaid.set(key, { saves: cost - quote.cost, missing: list(quote.missing), gated: quote.gated === true });
+    }
+    return undefined;
+  };
+
+  const nameOf = (key: StepKey): string =>
+    (key.startsWith('c') ? data.currencies[itemId(key)] : data.items[itemId(key)]?.name) ?? `#${itemId(key)}`;
 
   /** The offer to pay: the default when covered, else one that is, else the least short. */
   const payable = (key: StepKey, count: number, list: PlanRoute[], remaining: (key: StepKey) => number): PlanRoute => {
@@ -235,8 +321,12 @@ export function decide(
     const { key, count } = step;
     decisions.routes.delete(key);
     decisions.fills.delete(key);
-    // What everything else needs: steps still to be given their offer reserve nothing yet.
-    const other = solve(decisions, new Set([key, ...pending.filter((s) => offers(s.key).length).map((s) => s.key)]));
+    decisions.paid.delete(key);
+    decisions.unpaid.delete(key);
+    // What everything else needs: steps still to be given their offer reserve
+    // nothing yet, nor do currency crafts picked for a later goal.
+    const later = pending.filter((s) => offers(s.key).length || (decisions.paid.has(s.key) && priority(s) > priority(step)));
+    const other = solve(decisions, new Set([key, ...later.map((s) => s.key)]));
     const remaining = (input: StepKey) => Math.max(0, stockOf(input) - (other.demand.get(input) ?? 0));
     const usual = choose(key).route;
 
@@ -269,6 +359,13 @@ export function decide(
             .reduce((best, q) => (better(q.quote, best.quote) ? q : best), current).route;
         }
       }
+    }
+    if (hasWallet && !list.length && !chosen(key) && !goals.has(key) && (route.action === 'buy' || route.action === 'craft' || route.action === 'forge')) {
+      const current =
+        route.action === 'buy'
+          ? { cost: (buyPrice(plan, itemId(key)) ?? 0) * count, priced: buyPrice(plan, itemId(key)) !== undefined }
+          : quoteRoute(route, count, new Stock(remaining), new Set([key]));
+      if (current.priced) route = payWithCurrency(key, count, current.cost, remaining) ?? route;
     }
     if (route !== usual) decisions.routes.set(key, route);
     if (route.pool) decisions.fills.set(key, fillFor(route, remaining));

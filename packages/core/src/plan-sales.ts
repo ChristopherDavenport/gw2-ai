@@ -10,8 +10,10 @@ export function planReserve(plan: CraftingPlan): Map<number, number> {
 
 const SPIRIT_SHARD = 23;
 
-/** Spirit Shards the plan's steps call for. */
-const planShards = (plan: CraftingPlan) => solvePlan(plan).steps.find((s) => s.kind === 'Currency' && s.id === SPIRIT_SHARD)?.need ?? 0;
+/** Currency id → what the plan's steps call for. Coin is the target, not listed here. */
+export function planCurrencies(plan: CraftingPlan): Map<number, number> {
+  return new Map(solvePlan(plan).steps.filter((s) => s.kind === 'Currency').map((s) => [s.id, s.need]));
+}
 
 /** Gold the plan needs beyond the wallet; undefined until holdings, wallet included, have been read. */
 export function planShortfall(plan: CraftingPlan): number | undefined {
@@ -27,22 +29,24 @@ export function planShortfall(plan: CraftingPlan): number | undefined {
 export function salesForPlan(
   plan: CraftingPlan,
   items: readonly Sellable[],
-  options: Omit<SaleOptions, 'reserve'> & { delivery?: number | undefined } = {},
+  options: Omit<SaleOptions, 'reserve' | 'currencyReserve'> & { delivery?: number | undefined } = {},
 ): SalePlan {
   const { delivery = 0, ...sale } = options;
   const shortfall = planShortfall(plan);
   // Coins waiting in the delivery box are gold already, so nothing is sold to raise them.
   const target = sale.target ?? (shortfall === undefined ? undefined : Math.max(0, shortfall - delivery));
-  // Spirit Shards the plan will spend are not there for promotions.
+  // Currencies the plan will spend are not there for promotions or paths.
+  const currencies = planCurrencies(plan);
   const shards = sale.conversions?.spiritShards;
   const conversions =
     sale.conversions && shards !== undefined
-      ? { ...sale.conversions, spiritShards: Math.max(0, shards - planShards(plan)) }
+      ? { ...sale.conversions, spiritShards: Math.max(0, shards - (currencies.get(SPIRIT_SHARD) ?? 0)) }
       : sale.conversions;
   return planSales(items, {
     ...sale,
     ...(conversions ? { conversions } : {}),
     ...(target !== undefined ? { target } : {}),
     reserve: planReserve(plan),
+    currencyReserve: currencies,
   });
 }

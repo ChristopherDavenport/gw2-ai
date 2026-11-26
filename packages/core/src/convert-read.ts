@@ -23,7 +23,7 @@ export interface Conversions extends ConversionData {
 }
 
 /** Highest rating per crafting discipline across characters. */
-async function ratings(client: Gw2Client): Promise<Map<string, number>> {
+export async function craftingRatings(client: Gw2Client): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   for (const character of await client.all('/v2/characters', { ttlMs: TTL.account })) {
     for (const c of character.crafting ?? []) out.set(c.discipline, Math.max(out.get(c.discipline) ?? 0, c.rating));
@@ -54,7 +54,7 @@ async function craftRecipes(
   if (failed) notes.push(`recipe lookup failed for ${failed} materials`);
   const recipes = await client.many('/v2/recipes', found.flat());
 
-  const skill = permissions.includes('characters') ? await ratings(client).catch(() => undefined) : undefined;
+  const skill = permissions.includes('characters') ? await craftingRatings(client).catch(() => undefined) : undefined;
   if (!skill) notes.push('crafting ratings unknown (needs `characters`): check each craft is within yours');
   const known = permissions.includes('unlocks')
     ? new Set(await client.get('/v2/account/recipes', { ttlMs: TTL.account }).catch(() => []))

@@ -7,6 +7,7 @@ import { TTL, type Gw2Client, type InventorySlot, type Permission } from '@gw2ki
 import { planConversions, type Conversion, type ConversionData } from './convert.js';
 import { sellProceeds } from './fees.js';
 import { cell, coins, num, text } from './format.js';
+import { pathNotes, pathText, planSalesPaths, type PathPlan, type PathSale, type SalesPathData } from './sales-paths.js';
 
 /** One item the account could sell. Prices are copper per unit, before fees. */
 export interface Sellable {
@@ -46,6 +47,16 @@ export interface SaleOptions {
   minLine?: number;
   /** Recipes and prices (readConversions): turn materials into something worth more before selling. */
   conversions?: ConversionData;
+  /** Crafted from wallet currencies and bought materials (readSalesPaths). */
+  paths?: SalesPathData;
+  /** Count `paths`, which need gold spent up front, toward the target. Default false: only say what they could raise. */
+  upfront?: boolean;
+  /** Share of daily trade volume a path's output may be. Default 0.1. */
+  pathShare?: number;
+  /** Days of that volume to wait out. Default 7. */
+  pathDays?: number;
+  /** Currency id → balance paths must not spend. */
+  currencyReserve?: ReadonlyMap<number, number>;
 }
 
 export interface SaleLine {
@@ -61,6 +72,8 @@ export interface SaleLine {
   kept: number;
   /** Set when the thing sold has to be crafted or promoted first; `revenue` is net of what it buys. */
   convert?: Conversion;
+  /** Set when the thing sold is crafted from a currency path; `revenue` is the profit. */
+  path?: PathSale;
 }
 
 export interface SalePlan {
@@ -72,9 +85,12 @@ export interface SalePlan {
   /** Copper the target is still missing after every sale. */
   short: number;
   method: 'instant' | 'list';
+  /** What the currency paths could do; their lines are in `lines` only when `included`. */
+  paths?: PathPlan & { included: boolean };
 }
 
 const DEFAULT_MIN_LINE = 10_000;
+const SPIRIT_SHARD = 23;
 const NEVER_SOLD: ReadonlySet<string> = new Set(['Legendary', 'Ascended']);
 
 /** Selling `units` into the buy orders, fees taken per price level as the game charges them. */
@@ -174,6 +190,31 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
     });
   }
 
+  let paths: SalePlan['paths'];
+  if (options.paths) {
+    // Spirit Shards that promotions will use are not there for paths.
+    const reserve = new Map(options.currencyReserve);
+    const shards = conversions.reduce((sum, c) => sum + c.spiritShards, 0);
+    if (shards) reserve.set(SPIRIT_SHARD, (reserve.get(SPIRIT_SHARD) ?? 0) + shards);
+    const found = planSalesPaths(options.paths, {
+      method,
+      reserve,
+      ...(options.keep ? { keep: options.keep } : {}),
+      ...(options.pathShare === undefined ? {} : { share: options.pathShare }),
+      ...(options.pathDays === undefined ? {} : { days: options.pathDays }),
+    });
+    paths = { ...found, included: options.upfront === true };
+    for (const sale of paths.included ? found.sales : []) {
+      const revenue = sale.profits.reduce((sum, p) => sum + p, 0);
+      const reference = options.paths.market.get(sale.path.output)?.sell;
+      const cost = sale.unitCost * sale.units;
+      const kept = reference ? Math.min(1, (revenue + cost) / sellProceeds(reference * sale.units)) : 1;
+      candidates.push({
+        line: { id: sale.path.output, name: sale.path.name, quantity: sale.units, held: 0, how: method, revenue, kept, path: sale },
+      });
+    }
+  }
+
   // Worthwhile sales first, then the preferred order within each group.
   candidates.sort(
     (a, b) =>
@@ -193,6 +234,19 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
       chosen.push(c);
       raised += c.line.revenue;
     }
+    // Not every unit of a path may be needed, and each costs gold and currency.
+    // Trimmed first, so a large run doesn't push out sales that cost nothing.
+    chosen = chosen.map((c) => {
+      const sale = c.line.path;
+      if (!sale) return c;
+      let { quantity, revenue } = c.line;
+      while (quantity > 1 && raised - sale.profits[quantity - 1]! >= target) {
+        const profit = sale.profits[--quantity]!;
+        revenue -= profit;
+        raised -= profit;
+      }
+      return { line: { ...c.line, quantity, revenue } };
+    });
     // Drop sales the later, larger ones made unnecessary, worst first.
     for (let i = chosen.length - 2; i >= 0; i--) {
       if (raised - chosen[i]!.line.revenue >= target) raised -= chosen.splice(i, 1)[0]!.line.revenue;
@@ -214,6 +268,7 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
     available,
     method,
     ...(target !== undefined ? { target } : {}),
+    ...(paths ? { paths } : {}),
     short: target === undefined ? 0 : Math.max(0, target - total),
   };
 }
@@ -327,6 +382,28 @@ const HOW: Record<SaleLine['how'], string> = { instant: 'to buy orders', list: '
 /** Sales listed one by one; the rest are totalled. */
 const LISTED_SALES = 60;
 
+/** What the lines made from currencies need to be read with, or what leaving them out gives up. */
+function pathSection(sales: SalePlan, paths: NonNullable<SalePlan['paths']>): string {
+  if (!paths.sales.length) {
+    const reasons = pathNotes(paths, 0, true).split('\n').filter((l) => l.startsWith('- Binding') || l.startsWith('- Left out') || l.startsWith('- Held back'));
+    return paths.blocked.length || paths.binding.length
+      ? `### Paths that need gold up front\n\nNone can be used for a profit now.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`
+      : '';
+  }
+  const units = paths.sales.reduce((sum, s) => sum + s.units, 0);
+  if (!paths.included) {
+    return (
+      `**Not included: paths that need gold up front.** Spending wallet currencies on crafting could raise about ${coins(paths.profit)} more profit ` +
+      `(estimate: ${num(units)} × ${[...new Set(paths.sales.map((s) => text(s.path.name)))].join(', ')}; ${coins(paths.upfront)} needed first; ` +
+      `volume snapshot ${paths.volume.from} to ${paths.volume.to}). Turn on paths that need gold up front to count them.`
+    );
+  }
+  const used = sales.lines.filter((l) => l.path);
+  const upfront = used.reduce((sum, l) => sum + (l.path!.unitCost + l.path!.unitFee) * l.quantity, 0);
+  const full = used.reduce((sum, l) => sum + l.quantity, 0) === units;
+  return `### Paths that need gold up front\n\n${pathNotes(paths, upfront, full)}`;
+}
+
 /** Markdown checklist of the sales, headed by what they raise. */
 export function renderSales(sales: SalePlan, options: { heading?: string; delivery?: number; notes?: readonly string[] } = {}): string {
   const head =
@@ -337,14 +414,18 @@ export function renderSales(sales: SalePlan, options: { heading?: string; delive
       : sales.short > 0
         ? `These sales raise **${coins(sales.total)}** of ${coins(sales.target)}: still **${coins(sales.short)} short** with everything sellable sold.`
         : `These sales raise **${coins(sales.total)}**, covering ${coins(sales.target)}. Up to ${coins(sales.available)} could be raised in all.`;
-  const shown = sales.lines.slice(0, LISTED_SALES);
+  // Paths are always listed: they are where gold has to be spent first.
+  const listed = (l: SaleLine, i: number) => i < LISTED_SALES || l.path !== undefined;
+  const shown = sales.lines.filter(listed);
+  const paths = sales.paths;
   const lines = shown.map((l) => {
+    if (l.path) return pathText(l.path, l.quantity, HOW[l.how], paths!.currencyNames);
     if (l.convert) return `- [ ] ${conversionText(l.convert, HOW[l.how])}`;
     const kept = l.how === 'vendor' ? '' : `, ${Math.round(l.kept * 100)}% of listing value`;
     const part = l.quantity < l.held ? ` of ${num(l.held)}` : '';
     return `- [ ] Sell ${num(l.quantity)}${part} × ${text(l.name)} ${HOW[l.how]}: ${coins(l.revenue)}${l.how === 'list' ? '' : kept}`;
   });
-  const rest = sales.lines.slice(LISTED_SALES);
+  const rest = sales.lines.filter((l, i) => !listed(l, i));
   if (rest.length) lines.push(`- and ${num(rest.length)} smaller sales worth ${coins(rest.reduce((sum, l) => sum + l.revenue, 0))}`);
   const first = shown.reduce((sum, l) => sum + (l.convert?.buys.reduce((s, b) => s + b.cost, 0) ?? 0), 0);
   return [
@@ -358,6 +439,7 @@ export function renderSales(sales: SalePlan, options: { heading?: string; delive
     sales.method === 'list' ? 'Listed sales pay only when a buyer takes them, which can be days.' : '',
     lines.join('\n') || (sales.target === 0 ? '' : '_Nothing sellable._'),
     // Notes are our own sentences, with code spans to keep.
+    paths && sales.target !== 0 ? pathSection(sales, paths) : '',
     options.notes?.length ? `Not read: ${options.notes.join('; ')}.` : '',
   ]
     .filter(Boolean)

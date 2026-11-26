@@ -215,7 +215,8 @@ export function createServer(): McpServer {
         'priced at the trading post after the 15% fee, or at a vendor when that pays more. Without `target_gold` it lists everything sellable. ' +
         'With `plan` (a saved crafting plan) it refreshes the plan\'s holdings, holds back the materials that plan uses (no other plan\'s) and aims at its gold shortfall. ' +
         'With `craft` (default) it also checks whether materials raise more crafted or refined first; with `promote`, Mystic Forge material promotions (random yields, so averages; uses Spirit Shards). ' +
-        'It never sells, crafts or forges anything: the API is read-only, so the player does that in game. Only one conversion step; no salvaging or currency conversion yet; recipes that need discovery or an unlock are skipped unless `unlocks` shows them learned; the promotion list is a snapshot with some gaps (such as Pile of Crystalline Dust). ' +
+        'It also works out (needs `wallet`) what crafting from Imperial Favor could raise: weapons made from bought materials plus Spirit Shards and Research Notes. These need gold spent first, so they are only counted with `upfront`; otherwise the answer says what they could raise. Each is capped by a snapshot of trade volume. ' +
+        'It never sells, crafts or forges anything: the API is read-only, so the player does that in game. Only one conversion step for spare materials; no salvaging, and no other currency conversion; recipes that need discovery or an unlock are skipped unless `unlocks` shows them learned; the promotion list is a snapshot with some gaps (such as Pile of Crystalline Dust). ' +
         'Listed sales are not guaranteed; bound items and equipped gear are never considered. ' +
         'Needs `inventories` (`characters` adds bags and crafting ratings, `unlocks` learned recipes, `tradingpost` the delivery box, `wallet` a plan\'s shortfall and Spirit Shards). Changes only the local plan file. ' +
         'Cost: ~10 API calls; `craft` adds up to ~150 recipe lookups and prices, about 20 s the first time.',
@@ -231,11 +232,16 @@ export function createServer(): McpServer {
         everything: z.boolean().default(false).describe('Also gear, consumables and other non-materials. Ask the player first.'),
         craft: z.boolean().default(true).describe('Craft or refine materials first where that raises more than selling them.'),
         promote: z.boolean().default(false).describe('Also Mystic Forge material promotions: random yields, uses Spirit Shards.'),
+        upfront: z.boolean().default(false).describe('Count paths that need gold spent up front (crafting from currencies to sell). Ask the player first.'),
+        volume_share: z.number().positive().max(1).optional().describe('Share of daily trade volume to sell of each such item. Default 0.1. Confirm with the player before changing.'),
+        wait_days: z.number().int().min(1).max(90).optional().describe('Days of volume the player will wait for sales. Default 7. Confirm before changing.'),
       },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
-    ({ target_gold, plan, method, order, keep, everything, craft, promote }) =>
-      withClient((c) => tools.raiseGold(c, { targetGold: target_gold, plan, method, order, keep, everything, craft, promote })),
+    ({ target_gold, plan, method, order, keep, everything, craft, promote, upfront, volume_share, wait_days }) =>
+      withClient((c) =>
+        tools.raiseGold(c, { targetGold: target_gold, plan, method, order, keep, everything, craft, promote, upfront, volumeShare: volume_share, waitDays: wait_days }),
+      ),
   );
 
   server.registerTool(

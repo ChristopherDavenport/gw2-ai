@@ -50,5 +50,6 @@ export {
   type SolvedPlan,
   type StepKey,
 } from './plan.js';
+export type { CurrencyCraft, CurrencyShortfall } from './decide.js';
 export { EXCHANGE_FEE_RATE, exchangeFee, LISTING_FEE_RATE, listingFee, sellProceeds } from './fees.js';
 export { FORGE_POOLS, FORGE_POOLS_AS_OF } from './forge-pools-data.js';

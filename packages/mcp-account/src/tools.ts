@@ -21,6 +21,7 @@ import {
   createContext,
   fetchCharacter,
   readConversions,
+  readSalesPaths,
   readHoldings,
   readSellables,
   renderPlan,
@@ -51,7 +52,7 @@ export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
   gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
   gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances' },
-  gw2_raise_gold: { required: ['inventories'], optional: ['characters', 'tradingpost', 'wallet', 'unlocks'], note: 'characters adds character bags and crafting ratings, tradingpost adds coins waiting in the delivery box, wallet works out what a plan is short and counts Spirit Shards for promotions, unlocks adds learned recipes to what is considered for crafting' },
+  gw2_raise_gold: { required: ['inventories'], optional: ['characters', 'tradingpost', 'wallet', 'unlocks'], note: 'characters adds character bags and crafting ratings, tradingpost adds coins waiting in the delivery box, wallet works out what a plan is short and counts Spirit Shards for promotions, unlocks adds learned recipes to what is considered for crafting; wallet is also what paths paid in currencies are worked out from' },
   gw2_plan_holdings: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet counts currency balances toward the plan' },
 };
 
@@ -264,16 +265,23 @@ export interface RaiseGoldArgs {
   craft?: boolean | undefined;
   /** Consider Mystic Forge promotions before selling. Default false. */
   promote?: boolean | undefined;
+  /** Count crafting paths paid in currencies, which need gold up front. Default false. */
+  upfront?: boolean | undefined;
+  /** Share of daily trade volume to sell of a path's output. Default 0.1. */
+  volumeShare?: number | undefined;
+  /** Days of that volume to wait out. Default 7. */
+  waitDays?: number | undefined;
 }
 
 /** What closes every answer; says which conversions were actually considered. */
-function nothingSold(considered: { craft: boolean; promote: boolean }): string {
+function nothingSold(considered: { craft: boolean; promote: boolean; paths: boolean }): string {
   const ways = [considered.craft ? 'crafting' : '', considered.promote ? 'Mystic Forge promotion' : ''].filter(Boolean).join(' or ');
   return [
     'Nothing has been sold: the API is read-only, so do any crafting and make the sales in game. Bound items, equipped gear and guild storage are never considered.',
-    ways
-      ? `Only one step of ${ways} is considered before selling; nothing is salvaged or converted from currencies.`
-      : 'Nothing is crafted, promoted, salvaged or converted from currencies first.',
+    ways ? `Only one step of ${ways} is considered for spare materials; nothing is salvaged.` : 'Nothing is crafted, promoted or salvaged first.',
+    considered.paths
+      ? 'The only currency conversion considered is crafting what Imperial Favor pays toward, from materials bought with gold.'
+      : 'Nothing is converted from currencies.',
     considered.promote ? 'Promotion yields are random: their quantities and gold are averages.' : '',
   ]
     .filter(Boolean)
@@ -310,12 +318,21 @@ export async function raiseGold(client: Gw2Client, args: RaiseGoldArgs, dir = pl
   const wanted = { craft: args.craft ?? true, promote: args.promote ?? false };
   const read = async () => {
     const { items, notes, delivery } = await readSellables(client, perms);
-    const { data, considered, ...converted } = await conversionsFor(client, perms, items, wanted);
+    const [{ data, considered, ...converted }, paths] = await Promise.all([
+      conversionsFor(client, perms, items, wanted),
+      readSalesPaths(client, perms).catch(() => ({ data: undefined, notes: ['paths that spend wallet currencies could not be checked'] })),
+    ]);
     return {
       items,
-      options: { ...options, ...(data ? { conversions: data } : {}) },
-      considered,
-      extra: { notes: [...notes, ...converted.notes], ...(delivery === undefined ? {} : { delivery }) },
+      options: {
+        ...options,
+        ...(data ? { conversions: data } : {}),
+        ...(paths.data ? { paths: paths.data, upfront: args.upfront === true } : {}),
+        ...(args.volumeShare === undefined ? {} : { pathShare: args.volumeShare }),
+        ...(args.waitDays === undefined ? {} : { pathDays: args.waitDays }),
+      },
+      considered: { ...considered, paths: paths.data !== undefined },
+      extra: { notes: [...notes, ...converted.notes, ...paths.notes], ...(delivery === undefined ? {} : { delivery }) },
     };
   };
 

@@ -38,13 +38,15 @@ salesForPlan(plan, items, { conversions });
 ```
 
 - `readSellables(client, permissions)`: unbound items in material storage, the bank, shared slots and character bags, with prices and buy-order depth, plus coins in the delivery box (`tradingpost`). `notes` says what could not be read.
-- `planSales(items, options)`: pure. Options: `target` (copper; all of it when absent), `method` (`instant` or `list`), `order` (`least-loss` or `fewest`), `reserve`, `keep`, `everything`, `minLine`, `conversions`.
+- `planSales(items, options)`: pure. Options: `target` (copper; all of it when absent), `method` (`instant` or `list`), `order` (`least-loss` or `fewest`), `reserve`, `keep`, `everything`, `minLine`, `conversions`, `paths`, `upfront`, `pathShare`, `pathDays`, `currencyReserve`.
 - `readConversions(client, permissions, items, { craft, promote })`: recipes and prices for turning `items` into something else first. `craft` (default true) covers crafting and refining, using `characters` for ratings and `unlocks` for learned recipes; it takes about 20 seconds. `promote` (default false) adds Mystic Forge material promotions and uses `wallet` for Spirit Shards. `planConversions` is the pure part.
 - `promotionRecipes()` and `PROMOTIONS_AS_OF`: the bundled promotion snapshot, refreshed with `node scripts/sync-promotions.mjs` in the repository after `pnpm build`.
 - `salesForPlan(plan, items, options)`: holds back what the plan uses (`planReserve`) and aims at its shortfall (`planShortfall`, unknown until the wallet has been read).
+- `readSalesPaths(client, permissions)`: what crafting from wallet currencies could raise (needs `wallet`; `characters` and `unlocks` check ratings and recipes). Pass its `data` as `paths`; the sales say what they could raise, and with `upfront: true` count it, since materials have to be bought with gold first. `planSalesPaths` is the pure part. `salesForPlan` holds back the currencies the plan needs.
+- `CURRENCY_PATHS` and `CURRENCY_PATHS_AS_OF`: the bundled snapshot of what each path takes and how many trade per day, refreshed with `node scripts/sync-currency-paths.mjs` after `pnpm build`.
 - Trading post fee arithmetic: `sellProceeds`, `listingFee`, `exchangeFee`, `flipProfit`, `breakEvenPrice`.
 
-Limits: only one conversion step; no salvaging or currency conversion yet; recipes needing discovery or an unlock are skipped unless `unlocks` shows them; promotion yields are random averages, and some promotions (such as Pile of Crystalline Dust) are missing from the snapshot; listed sales are not guaranteed; bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested.
+Limits: only one conversion step for spare materials; no salvaging; the only currency paths are the weapons Imperial Favor pays toward, with volume from a snapshot; recipes needing discovery or an unlock are skipped unless `unlocks` shows them; promotion yields are random averages, and some promotions (such as Pile of Crystalline Dust) are missing from the snapshot; listed sales are not guaranteed; bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested.
 
 Sections the key has no permission for are skipped with a note instead of failing the report. Used by the [gw2-ai](https://github.com/ChristopherDavenport/gw2-ai) MCP servers and report site.
 

@@ -1,6 +1,6 @@
 import type { Gw2Client } from '@gw2kit/client';
 import type { VendorCaps } from '@gw2kit/wiki';
-import { decide, NO_DECISIONS, poolInputs, type Decisions } from './decide.js';
+import { decide, NO_DECISIONS, poolInputs, type CurrencyCraft, type CurrencyShortfall, type Decisions } from './decide.js';
 import { addVendorOffers, fetchRecipeData, type FetchRecipeOptions, type RecipeData, type SourceRecipe, type TreeVendorOffer } from './tree.js';
 
 /**
@@ -176,6 +176,10 @@ export interface PlanStep {
   usual?: PlanRoute;
   /** True when routes differ in ways gold can't compare and none was chosen. */
   undecided: boolean;
+  /** Set when this craft was picked over buying because the wallet covers its currencies. */
+  paid?: CurrencyCraft;
+  /** Set when a craft paid partly in currencies would save gold but can't be had. */
+  unpaid?: CurrencyShortfall;
   /** Gold spent at this step itself: a TP purchase, or the coin part of a vendor purchase. */
   coin: number;
   /** Account or soulbound: can't be bought from other players. */
@@ -736,6 +740,8 @@ function solveSteps(plan: CraftingPlan, choose: (key: StepKey) => Choice, decisi
       options: picked ? [usual, ...options].filter((r) => r.key !== route.key) : options,
       ...(picked && count > 0 ? { usual } : {}),
       undecided: undecided && count > 0 && !picked,
+      ...(count > 0 && decisions.paid.has(key) ? { paid: decisions.paid.get(key)! } : {}),
+      ...(count > 0 && decisions.unpaid.has(key) ? { unpaid: decisions.unpaid.get(key)! } : {}),
       coin: stepCoin,
       bound: kind === 'Item' && data.items[id]?.bound === true,
       ...(caps && count > 0 ? { caps } : {}),
