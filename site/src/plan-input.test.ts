@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parseGoal, parseGoalRows, parsePlanUpdate } from './plan-input.js';
+import { parseEntry, parseGoal, parsePlanUpdate } from './plan-input.js';
 
 describe('parseGoal', () => {
   it('reads ids and names', () => {
@@ -12,30 +12,15 @@ describe('parseGoal', () => {
   });
 });
 
-describe('parseGoalRows', () => {
-  it('keeps one item per row, apostrophes and commas included, and skips blank rows', () => {
-    const rows = [
-      { item: 'Exordium', quantity: '1' },
-      { item: '  ', quantity: '' },
-      { item: 'Aurene\u2019s Weight', quantity: '2' },
-      { item: 'Strawberry, Cilantro Cheesecake', quantity: '3' },
-      { item: '19721', quantity: '4' },
-    ];
-    expect(parseGoalRows(rows)).toMatchObject({
-      goals: [
-        { goal: { name: 'Exordium' }, quantity: 1 },
-        { goal: { name: "Aurene's Weight" }, quantity: 2 },
-        { goal: { name: 'Strawberry, Cilantro Cheesecake' }, quantity: 3 },
-        { goal: { id: 19721 }, quantity: 4 },
-      ],
-    });
+describe('parseEntry', () => {
+  it('keeps the whole name, apostrophes and commas included', () => {
+    expect(parseEntry('Aurene\u2019s Weight', '2')).toMatchObject({ goal: { name: "Aurene's Weight" }, quantity: 2 });
+    expect(parseEntry('Strawberry, Cilantro Cheesecake', '3')).toMatchObject({ goal: { name: 'Strawberry, Cilantro Cheesecake' } });
+    expect(parseEntry('19721', '4')).toMatchObject({ goal: { id: 19721 }, quantity: 4 });
   });
-  it('points at the row and field that is wrong', () => {
-    expect(parseGoalRows([{ item: '', quantity: '1' }])).toMatchObject({ row: 0, field: 'item' });
-    expect(parseGoalRows([{ item: 'a', quantity: '1' }, { item: '0', quantity: '1' }])).toMatchObject({ row: 1, field: 'item' });
-    for (const quantity of ['', '0', '1.5', '10001']) {
-      expect(parseGoalRows([{ item: 'a', quantity }])).toMatchObject({ row: 0, field: 'quantity' });
-    }
+  it('points at the field that is wrong', () => {
+    for (const item of ['  ', '0']) expect(parseEntry(item, '1')).toMatchObject({ field: 'item' });
+    for (const quantity of ['', '0', '1.5', '10001']) expect(parseEntry('a', quantity)).toMatchObject({ field: 'quantity' });
   });
 });
 

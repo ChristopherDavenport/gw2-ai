@@ -14,13 +14,13 @@ import { WikiClient } from '@gw2kit/wiki';
 import { $, describeError, downloadText, el, setStatus, setupTabs, startClock, type Tone } from './dom.js';
 import { planFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
-import { MAX_QUANTITY, parseGoalRows, parsePlanUpdate, type Goal, type GoalRows } from './plan-input.js';
+import { parseEntry, parsePlanUpdate, parseQuantity, MAX_QUANTITY, QUANTITY_ERROR, type Entry, type Goal } from './plan-input.js';
+import { addToSelection, iconUrl, type SelectedGoal } from './plan-selection.js';
 import { deletePlan, loadPlan, savePlan, withoutHoldings } from './plan-store.js';
 import { checkingText, keepWarning, readAccountSellables, readConvertControls, readSaleControls, type Account, type AccountSales } from './sales-ui.js';
 
 /** Far above any real plan; stops a wrong file from freezing the page. */
 const MAX_FILE_BYTES = 20 * 1024 * 1024;
-const MAX_GOAL_ROWS = 20;
 
 export interface PlanSectionOptions {
   /** For public data: item definitions, recipes, wiki pages. */
@@ -38,8 +38,10 @@ export interface PlanSection {
 
 export function initPlanSection(options: PlanSectionOptions): PlanSection {
   const form = $<HTMLFormElement>('plan-form');
-  const rowsBox = $('plan-goal-rows');
-  const anotherBtn = $<HTMLButtonElement>('plan-goal-another');
+  const entryName = $<HTMLInputElement>('plan-goal');
+  const entryQuantity = $<HTMLInputElement>('plan-quantity');
+  const newBtn = $<HTMLButtonElement>('plan-new');
+  const goalHint = $('plan-goal-hint');
   const addBtn = $<HTMLButtonElement>('plan-add');
   const goalBox = $<HTMLFieldSetElement>('plan-goals');
   const goalList = $('plan-goal-list');
@@ -93,6 +95,11 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   let builds = 0;
   let shownChoices = '';
   let shownGoals = '';
+  /** The items picked before there is a plan; with one, its goals are the rows. */
+  let pending: SelectedGoal[] = [];
+  /** Item id → icon URL; '' when the item has none. */
+  const icons = new Map<number, string>();
+  const iconsWanted = new Set<number>();
   /** Bumped when goals are added, so the background worker looks their offers up too. */
   let graphs = 0;
   /** Set while sales are wanted in the markdown; `read` is absent while being read. */
@@ -102,7 +109,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   let holdingsEpoch = 0;
 
   function updateControls(): void {
-    for (const b of [buildBtn, addBtn, loadBtn, pricesBtn, applyBtn, ...outputButtons]) b.disabled = busy;
+    for (const b of [buildBtn, newBtn, addBtn, loadBtn, pricesBtn, applyBtn, ...outputButtons]) b.disabled = busy;
     choiceBox.disabled = busy;
     goalBox.disabled = busy;
     sellBox.disabled = busy;
@@ -123,7 +130,6 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   function showSettings(): void {
     if (!current) return;
-    addBtn.hidden = false;
     const settings = planSettings(current.plan);
     const blocker = holdingsBlocker();
     const using = holdingsInUse(current.plan);
@@ -194,7 +200,10 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     if (replace) selling = undefined;
     const next = epoch === holdingsEpoch ? merged : withoutHoldings(merged);
     show(next, render(next), replace ? ++builds : builds);
-    if (replace) setStatus(copyStatus, '');
+    if (replace) {
+      pending = [];
+      setStatus(copyStatus, '');
+    }
     await persist(next);
   }
 
@@ -207,9 +216,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     const signature = JSON.stringify(choices);
     if (signature !== shownChoices || choiceBox.hidden !== (choices.length === 0)) showChoices(choices);
     shownChoices = signature;
-    const goals = JSON.stringify(plan.goals);
-    if (goals !== shownGoals) showGoals(plan.goals);
-    shownGoals = goals;
+    showGoals();
   }
 
   function showMarkdown(markdown: string): void {
@@ -227,100 +234,139 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   /** The plan as far as it goes before vendors are checked. Not kept or copyable. */
   function showPartial(data: RecipeData, goals: { itemId: number; quantity: number }[]): void {
-    for (const box of [choiceBox, goalBox, sellBox]) box.hidden = true;
+    for (const box of [choiceBox, sellBox]) box.hidden = true;
     shownChoices = '';
-    shownGoals = '';
     showMarkdown(`> Still loading: vendors are being checked, so steps and totals will change.\n\n${renderPlan(planFromData(data, goals))}`);
   }
 
   // ---- Goals ----
 
-  function showGoals(goals: PlanGoal[]): void {
+  /** The one list of what is being made: the plan's goals, or what is picked for one. */
+  function showGoals(): void {
+    const goals: readonly PlanGoal[] = current?.plan.goals ?? pending;
+    buildBtn.hidden = current !== undefined;
+    newBtn.hidden = current === undefined;
+    // A plan needs something to make.
+    const last = current !== undefined && goals.length === 1;
+    goalHint.textContent = !goals.length
+      ? 'Nothing selected yet.'
+      : last
+        ? 'A plan makes at least one item. To drop this one, add another first or start a new plan.'
+        : '';
+    // Rebuilding the rows would drop a quantity being typed.
+    const signature = JSON.stringify([current !== undefined, goals]);
+    if (signature === shownGoals) return;
+    shownGoals = signature;
     const focused = document.activeElement?.id;
-    goalBox.hidden = false;
-    goalList.replaceChildren(
-      ...goals.map((goal) => {
-        const input = el('input');
-        input.type = 'number';
-        input.id = `plan-goal-qty-${goal.itemId}`;
-        input.min = '1';
-        input.max = String(MAX_QUANTITY);
-        input.step = '1';
-        input.value = String(goal.quantity);
-        const revert = () => (input.value = String(goal.quantity));
-        input.addEventListener('change', () => {
-          const quantity = Number(input.value);
-          if (busy || !Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
-            revert();
-            setStatus(copyStatus, `Quantity must be a whole number from 1 to ${MAX_QUANTITY}. Use Remove to drop an item.`, 'error');
-            return;
-          }
-          change({ quantities: { [`i${goal.itemId}`]: quantity } }, goal.name, revert);
-        });
-        const label = el('label', { text: goal.name });
-        label.htmlFor = input.id;
-        const remove = el('button', { text: 'Remove' });
-        remove.type = 'button';
-        remove.id = `plan-goal-remove-${goal.itemId}`;
-        remove.setAttribute('aria-label', `Remove ${goal.name}`);
-        // A plan needs something to make.
-        remove.disabled = goals.length === 1;
-        remove.addEventListener('click', () => change({ quantities: { [`i${goal.itemId}`]: 0 } }, goal.name));
-        return el('li', {}, label, input, remove);
-      }),
-    );
+    goalList.replaceChildren(...goals.map((goal) => goalRow(goal, last)));
     if (focused) document.getElementById(focused)?.focus();
+    showIcons();
+    void loadIcons(goals.map((g) => g.itemId));
   }
 
-  const itemRows = () => [...rowsBox.querySelectorAll<HTMLElement>('.goal-row')];
-  const rowInput = (row: HTMLElement, field: 'item' | 'quantity') =>
-    row.querySelector<HTMLInputElement>(field === 'item' ? '.goal-name' : '.goal-quantity')!;
-  const readRows = () => itemRows().map((row) => ({ item: rowInput(row, 'item').value, quantity: rowInput(row, 'quantity').value }));
-
-  function addRow(): void {
-    if (itemRows().length >= MAX_GOAL_ROWS) return;
-    const number = itemRows().length + 1;
-    const name = el('input', { className: 'goal-name' });
-    name.type = 'text';
-    name.autocomplete = 'off';
-    name.spellcheck = false;
-    name.placeholder = 'Exact item name or id';
-    name.setAttribute('aria-label', `Item name or id ${number}`);
-    const quantity = el('input', { className: 'goal-quantity' });
-    quantity.type = 'number';
-    quantity.min = '1';
-    quantity.max = String(MAX_QUANTITY);
-    quantity.step = '1';
-    quantity.value = '1';
-    quantity.setAttribute('aria-label', `Quantity ${number}`);
-    const remove = el('button', { text: 'Remove row' });
+  function goalRow(goal: PlanGoal, last: boolean): HTMLLIElement {
+    const icon = el('span', { className: 'item-icon' });
+    icon.dataset.itemId = String(goal.itemId);
+    const input = el('input');
+    input.type = 'number';
+    input.id = `plan-goal-qty-${goal.itemId}`;
+    input.min = '1';
+    input.max = String(MAX_QUANTITY);
+    input.step = '1';
+    input.value = String(goal.quantity);
+    input.addEventListener('change', () => setQuantity(goal, input));
+    const label = el('label', {}, el('span', { className: 'visually-hidden', text: 'Quantity of ' }), goal.name);
+    label.htmlFor = input.id;
+    const remove = el('button', { text: 'Remove' });
     remove.type = 'button';
-    const row = el('div', { className: 'row goal-row' }, name, quantity, remove);
-    remove.addEventListener('click', () => {
-      row.remove();
-      anotherBtn.focus();
-    });
-    rowsBox.append(row);
-    name.focus();
-  }
-  anotherBtn.addEventListener('click', addRow);
-
-  /** Empty the rows once used, unless the player has typed something else meanwhile. */
-  function clearRows(used: string): void {
-    if (JSON.stringify(readRows()) !== used) return;
-    const [first, ...rest] = itemRows();
-    for (const row of rest) row.remove();
-    rowInput(first!, 'item').value = '';
-    rowInput(first!, 'quantity').value = '1';
+    remove.id = `plan-goal-remove-${goal.itemId}`;
+    remove.setAttribute('aria-label', `Remove ${goal.name}`);
+    remove.disabled = last;
+    remove.addEventListener('click', () => removeGoal(goal));
+    return el('li', {}, icon, label, input, remove);
   }
 
-  /** The rows' items, or undefined after pointing at what is wrong with them. */
-  function checkedRows(): Extract<GoalRows, { goals: unknown }>['goals'] | undefined {
-    const parsed = parseGoalRows(readRows());
-    if ('goals' in parsed) return parsed.goals;
+  function setQuantity(goal: PlanGoal, input: HTMLInputElement): void {
+    const revert = () => (input.value = String(goal.quantity));
+    const quantity = parseQuantity(input.value);
+    if (busy || quantity === undefined) {
+      revert();
+      if (!busy) setStatus(status, `${QUANTITY_ERROR} Use Remove to drop an item.`, 'error');
+      return;
+    }
+    if (current) return void change({ quantities: { [`i${goal.itemId}`]: quantity } }, goal.name, revert, status);
+    pending = pending.map((g) => (g.itemId === goal.itemId ? { ...g, quantity } : g));
+    setStatus(status, '');
+    showGoals();
+  }
+
+  function removeGoal(goal: PlanGoal): void {
+    if (busy) return;
+    if (current) {
+      // The row that had focus goes with the item.
+      void change({ quantities: { [`i${goal.itemId}`]: 0 } }, goal.name, undefined, status).then(focusEntry);
+      return;
+    }
+    pending = pending.filter((g) => g.itemId !== goal.itemId);
+    setStatus(status, `Removed ${goal.name}.`);
+    showGoals();
+    entryName.focus();
+  }
+
+  /** Put the icons that are known into their rows. A row without one stays blank. */
+  function showIcons(): void {
+    for (const box of goalList.querySelectorAll<HTMLElement>('.item-icon')) {
+      const url = icons.get(Number(box.dataset.itemId));
+      if (!url || box.firstChild) continue;
+      const image = el('img');
+      image.alt = '';
+      image.width = 32;
+      image.height = 32;
+      image.addEventListener('error', () => image.remove());
+      image.src = url;
+      box.append(image);
+    }
+  }
+
+  /** Icons come from the API alone, never from a plan, which may be anyone's file. */
+  async function loadIcons(itemIds: number[]): Promise<void> {
+    const ids = itemIds.filter((id) => Number.isSafeInteger(id) && id > 0 && !icons.has(id) && !iconsWanted.has(id));
+    if (!ids.length) return;
+    for (const id of ids) iconsWanted.add(id);
+    try {
+      const items = await client.many('/v2/items', ids);
+      for (const id of ids) icons.set(id, iconUrl(items.get(id)?.icon) ?? '');
+      showIcons();
+      await options.cache.flush();
+    } catch {
+      // Decoration only: the next change to the list tries again.
+    } finally {
+      for (const id of ids) iconsWanted.delete(id);
+    }
+  }
+
+  /** Ready the entry field for the next item, unless the player has moved elsewhere. */
+  function focusEntry(): void {
+    const at = document.activeElement;
+    if (!at || at === document.body || at === addBtn || at === buildBtn) entryName.focus();
+  }
+
+  /** The typed item, or undefined after pointing at what is wrong with it. */
+  function checkedEntry(): Extract<Entry, { goal: Goal }> | undefined {
+    const parsed = parseEntry(entryName.value, entryQuantity.value);
+    if ('goal' in parsed) return parsed;
     setStatus(status, parsed.error, 'error');
-    rowInput(itemRows()[parsed.row]!, parsed.field).focus();
+    (parsed.field === 'item' ? entryName : entryQuantity).focus();
     return undefined;
+  }
+
+  const readEntry = () => JSON.stringify([entryName.value, entryQuantity.value]);
+
+  /** Empty the entry once used, unless the player has typed something else meanwhile. */
+  function clearEntry(used: string): void {
+    if (readEntry() !== used) return;
+    entryName.value = '';
+    entryQuantity.value = '1';
   }
 
   // ---- Choices ----
@@ -364,11 +410,11 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   }
 
   /** Apply a change made with the page's controls; `revert` undoes the control if it can't be. */
-  function change(update: PlanUpdate, what: string, revert?: () => void): void {
-    if (!current || busy) return;
+  function change(update: PlanUpdate, what: string, revert?: () => void, node = copyStatus): Promise<void> {
+    if (!current || busy) return Promise.resolve();
     const { plan } = current;
     const epoch = holdingsEpoch;
-    void run(copyStatus, `Changing ${what}...`, async () => {
+    return run(node, `Changing ${what}...`, async () => {
       const result = updatePlan(plan, update);
       if (result.errors.length) {
         revert?.();
@@ -470,6 +516,8 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   async function run(node: HTMLElement, message: string, task: () => Promise<[text: string, tone: Tone]>): Promise<void> {
     if (busy) return;
     busy = true;
+    // Disabling a control takes focus from it.
+    const focused = document.activeElement?.id;
     updateControls();
     setStatus(node, message);
     const started = Date.now();
@@ -488,11 +536,12 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       elapsed.hidden = true;
       busy = false;
       updateControls();
+      if (focused && document.activeElement === document.body) document.getElementById(focused)?.focus();
       void options.cache.flush();
     }
   }
 
-  const replaceOk = () =>
+  const replaceOk = (question = 'Replace the current plan?') =>
     !current ||
     !(
       current.plan.goals.length > 1 ||
@@ -500,7 +549,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       Object.keys(current.plan.choices).length ||
       Object.keys(current.plan.notes).length
     ) ||
-    window.confirm('Replace the current plan? Its items, choices, finished steps and notes will be lost unless you downloaded its .json.');
+    window.confirm(`${question} Its items, choices, finished steps and notes will be lost unless you downloaded its .json.`);
 
   // ---- Build and add ----
 
@@ -516,21 +565,13 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     return id;
   }
 
-  /** Look the rows up, with `have` already being made. Throws before anything is changed. */
-  async function resolveGoals(
-    rows: Extract<GoalRows, { goals: unknown }>['goals'],
-    have: readonly PlanGoal[] = [],
-  ): Promise<{ itemId: number; quantity: number }[]> {
-    const totals = new Map(have.map((g) => [g.itemId, g.quantity]));
-    const wanted: { itemId: number; quantity: number }[] = [];
-    for (const { goal, input, quantity } of rows) {
-      const itemId = await resolveItem(goal, input);
-      const total = (totals.get(itemId) ?? 0) + quantity;
-      if (total > MAX_QUANTITY) throw new Error(`A plan makes at most ${MAX_QUANTITY} of one item.`);
-      totals.set(itemId, total);
-      wanted.push({ itemId, quantity });
-    }
-    return wanted;
+  /** Look a typed item up. Throws when there is no such item. */
+  async function lookUp({ goal, input, quantity }: Extract<Entry, { goal: Goal }>): Promise<SelectedGoal> {
+    const itemId = await resolveItem(goal, input);
+    const item = await client.one('/v2/items', itemId);
+    if (!item) throw new Error(`The GW2 API has no item for "${input.trim()}".`);
+    icons.set(itemId, iconUrl(item.icon) ?? '');
+    return { itemId, name: item.name, quantity };
   }
 
   const fetchOptions = {
@@ -539,14 +580,26 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     onProgress: (p: FetchProgress) => setStatus(status, progressText(p)),
   };
 
-  form.addEventListener('submit', (event) => {
-    event.preventDefault();
-    if (busy) return;
-    const used = JSON.stringify(readRows());
-    const rows = checkedRows();
-    if (!rows || !replaceOk()) return;
+  buildBtn.addEventListener('click', () => {
+    if (busy || current) return;
+    // A name typed but not added is meant to be part of the plan.
+    const typed = entryName.value.trim() ? checkedEntry() : undefined;
+    if (entryName.value.trim() && !typed) return;
+    if (!typed && !pending.length) {
+      setStatus(status, 'Enter an item name or id.', 'error');
+      entryName.focus();
+      return;
+    }
+    const used = readEntry();
     void run(status, 'Looking up the items...', async () => {
-      const wanted = await resolveGoals(rows);
+      await restored;
+      if (current) return ['Your saved plan was restored. Add the item to it, or start a new plan.', 'info'];
+      if (typed) {
+        pending = addToSelection(pending, await lookUp(typed));
+        showGoals();
+        clearEntry(used);
+      }
+      const wanted = pending;
       setStatus(status, 'Reading recipes and prices...');
       setStatus(background, '');
       const epoch = holdingsEpoch;
@@ -560,15 +613,31 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
         updateErrors.replaceChildren();
         await commit(plan, epoch, true);
       } catch (err) {
-        // Put back what the partial plan covered up.
-        if (current) rerender();
-        else output.hidden = true;
+        // Take down the partial plan.
+        output.hidden = true;
         throw err;
       }
-      clearRows(used);
       void enrich(builds);
       return ['Plan ready.', 'ok'];
-    });
+    }).then(focusEntry);
+  });
+
+  newBtn.addEventListener('click', () => {
+    if (!current || busy || !replaceOk('Start a new plan?')) return;
+    current = undefined;
+    // Lookups still running belong to the plan that was dropped.
+    builds++;
+    selling = undefined;
+    shownChoices = '';
+    output.hidden = true;
+    raw.value = '';
+    preview.replaceChildren();
+    updateInput.value = '';
+    updateErrors.replaceChildren();
+    for (const node of [status, background, copyStatus, updateStatus]) setStatus(node, '');
+    showGoals();
+    entryName.focus();
+    void deletePlan().catch((err) => setStatus(status, `Couldn't remove the saved plan, so a reload will bring it back: ${describeError(err)}`, 'error'));
   });
 
   /**
@@ -590,27 +659,37 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     }
   }
 
-  addBtn.addEventListener('click', () => {
-    if (!current || busy) return;
-    const used = JSON.stringify(readRows());
-    const rows = checkedRows();
-    if (!rows) return;
-    const base = current.plan;
+  // Enter in either entry field submits the form, which adds the item.
+  form.addEventListener('submit', (event) => {
+    event.preventDefault();
+    if (busy) return;
+    const typed = checkedEntry();
+    if (!typed) return;
+    const used = readEntry();
     const epoch = holdingsEpoch;
-    void run(status, 'Looking up the items...', async () => {
-      const wanted = await resolveGoals(rows, base.goals);
+    void run(status, 'Looking up the item...', async () => {
+      // So the item joins a saved plan still being read, not a list it would replace.
+      await restored;
+      const found = await lookUp(typed);
+      const base = current?.plan;
+      const selection = addToSelection(base?.goals ?? pending, found);
+      if (!base) {
+        pending = selection;
+        showGoals();
+        clearEntry(used);
+        return [`Added ${found.name}.`, 'ok'];
+      }
       setStatus(status, 'Reading recipes and prices...');
-      let plan = base;
-      for (const { itemId, quantity } of wanted) plan = await addGoal(client, plan, itemId, quantity, fetchOptions);
+      let plan = await addGoal(client, base, found.itemId, found.quantity, fetchOptions);
       // More of something already being made leaves the graph as it was.
       const grown = plan.data !== base.data;
       let note = '';
       if (grown) ({ plan, note } = await rereadHoldings(plan));
       await commit(plan, epoch, false, grown);
-      clearRows(used);
+      clearEntry(used);
       void enrich(builds);
       return note ? [`Added to the plan. ${note}`, 'info'] : ['Added to the plan.', 'ok'];
-    });
+    }).then(focusEntry);
   });
 
   // ---- Files and clipboard ----
@@ -795,6 +874,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     }
   })();
 
+  showGoals();
   updateControls();
 
   return {
