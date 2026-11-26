@@ -165,8 +165,11 @@ export interface RecipeData {
   maxDepth: number;
   /** ISO time the data was fetched. */
   fetchedAt: string;
-  /** Item id → name and lowest trading post sell listing (copper; absent when not listed). */
-  items: Record<number, { name: string; sell?: number }>;
+  /**
+   * Item id → name, lowest trading post sell listing and highest buy order
+   * (copper; absent when there is none), and whether the item is bound.
+   */
+  items: Record<number, { name: string; sell?: number; buy?: number; bound?: boolean }>;
   /** Item ids whose recipes were looked up; others are leaves at the fetch limits. */
   searched: number[];
   /** Output item id → recipes that make it. */
@@ -213,8 +216,7 @@ export async function buildRecipeTree(
  * Fetch what a tree for `itemId` needs: items, trading post prices and API
  * recipes, level by level (one /v2/items, /v2/commerce/prices and /v2/recipes
  * call per 200 ids, plus one /v2/recipes/search per item, since the API has
- * no bulk search). With `options.wiki`, also Mystic Forge recipes for items
- * the API can't craft, and NPC vendor offers for items with no recipe and no
+ * no bulk search). With `options.wiki`, also Mystic Forge recipes, and NPC vendor offers for items with no recipe and no
  * trading post listing.
  */
 export async function fetchRecipeData(client: Gw2Client, itemId: number, options: FetchRecipeOptions = {}): Promise<RecipeData> {
@@ -253,12 +255,10 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
     const recipes = await client.many('/v2/recipes', recipeIdLists.flat());
     for (const r of recipes.values()) found.push([r.output_item_id, fromApi(r)]);
 
-    // Mystic Forge recipes from the wiki, for items the API can't craft.
+    // Mystic Forge recipes from the wiki. Items the API can craft can have one too.
     if (search && wiki && data.status.mysticForge?.status !== 'failed') {
-      const crafted = new Set(found.map(([out]) => out));
-      const uncrafted = frontier.filter((id) => !crafted.has(id));
       try {
-        for (const r of await wiki.mysticForgeRecipes(uncrafted)) {
+        for (const r of await wiki.mysticForgeRecipes(frontier)) {
           const recipe = fromForge(r);
           if (recipe) found.push([r.output_item_id, recipe]);
         }
@@ -297,7 +297,9 @@ async function addItems(client: Gw2Client, data: RecipeData, ids: Iterable<numbe
   const [defs, prices] = await Promise.all([client.many('/v2/items', ids), client.many('/v2/commerce/prices', ids)]);
   for (const [id, item] of defs) {
     const sell = prices.get(id)?.sells.unit_price ?? 0;
-    data.items[id] = sell > 0 ? { name: item.name, sell } : { name: item.name };
+    const buy = prices.get(id)?.buys?.unit_price ?? 0;
+    const bound = item.flags?.some((f) => f === 'AccountBound' || f === 'SoulbindOnAcquire') ?? false;
+    data.items[id] = { name: item.name, ...(sell > 0 ? { sell } : {}), ...(buy > 0 ? { buy } : {}), ...(bound ? { bound } : {}) };
   }
 }
 

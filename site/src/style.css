@@ -148,7 +148,9 @@ label {
 }
 
 input[type='password'],
-input[type='text'] {
+input[type='text'],
+input[type='number'],
+textarea.update-input {
   font: inherit;
   font-family: var(--mono);
   font-size: 0.85rem;
@@ -394,7 +396,7 @@ legend {
   box-shadow: inset 0 2px 0 var(--accent);
 }
 
-textarea#raw {
+textarea.markdown-source {
   display: block;
   width: 100%;
   height: 60vh;
@@ -461,6 +463,30 @@ textarea#raw {
   padding: 4px 10px;
 }
 
+.row input[type='number'] {
+  flex: 0 0 6em;
+}
+.row input[type='file'] {
+  display: none;
+}
+#plan-output {
+  margin-top: 16px;
+}
+textarea.update-input {
+  display: block;
+  width: 100%;
+  margin-bottom: 8px;
+  resize: vertical;
+}
+.update-errors {
+  color: var(--error);
+  margin: 4px 0 0;
+  overflow-wrap: anywhere;
+}
+.update-errors:empty {
+  display: none;
+}
+
 .footer {
   color: var(--muted);
   font-size: 0.875rem;
@@ -474,4 +500,25 @@ textarea#raw {
   .row button {
     flex: 1 1 100%;
   }
+}
+
+.plan-choices {
+  margin: 0 0 1rem;
+}
+
+.plan-choice {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+
+.plan-choice label {
+  flex: 0 0 14rem;
+}
+
+.plan-choice select {
+  flex: 1 1 16rem;
+  min-width: 0;
 }

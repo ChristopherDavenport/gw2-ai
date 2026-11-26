@@ -7,7 +7,7 @@ There are three ways to use it:
 | Piece | What it is | Needs |
 | --- | --- | --- |
 | **Report site** (`site/`) | A static web page. Store your API key in the browser, generate a markdown report of your account, paste it into any AI chat. | A browser |
-| **MCP servers** (`packages/mcp-*`) | Three servers any MCP client can run: `gw2-account` (your account, needs a key), `gw2-data` (items, recipes, prices, gem exchange, raw API), `gw2-wiki` (search and read wiki.guildwars2.com). | Node.js 22+ |
+| **MCP servers** (`packages/mcp-*`) | Three servers any MCP client can run: `gw2-account` (your account, needs a key), `gw2-data` (items, recipes, crafting plans, prices, gem exchange, raw API), `gw2-wiki` (search and read wiki.guildwars2.com). | Node.js 22+ |
 | **Skills** (`skills/`) | Instructions that teach Claude how to answer account questions, trade and craft, plan legendaries and collections, and write GW2 API code. They work with the MCP servers or with a pasted report. | Claude Code, or any client that loads skills |
 
 The Claude Code plugin in this repository bundles the skills and the three servers.
@@ -59,7 +59,13 @@ The servers are built on three libraries under the `@gw2kit` scope, usable on th
 
 - [`@gw2kit/client`](packages/client/README.md): the typed GW2 API client.
 - [`@gw2kit/wiki`](packages/wiki/README.md): wiki client with typed Mystic Forge recipes and NPC vendor offers.
-- [`@gw2kit/recipes`](packages/recipes/README.md): recipe trees across crafting, the Mystic Forge and vendors, with fetching separate from solving.
+- [`@gw2kit/recipes`](packages/recipes/README.md): recipe trees and crafting plans across crafting, the Mystic Forge and vendors, with fetching separate from solving.
+
+### Crafting plans
+
+For a goal that takes weeks, such as a legendary, ask the assistant to plan it. A plan is a JSON document that renders to markdown: recipe choices to make, time gates, what to earn, buy and make, and wiki excerpts for the parts with no known source. The assistant builds it up in steps: `gw2_plan_create`, then your answers to the open decisions, then `gw2_plan_holdings` to subtract what you own, then notes and progress with `gw2_plan_update`. Plans are saved as files in `~/.local/share/gw2-ai/plans/` (`$XDG_DATA_HOME/gw2-ai/plans/` if set), shared by `gw2-data` and `gw2-account`.
+
+A model with no tools can work from the markdown pasted into a chat: the bottom of the plan shows a JSON update block (`choose`, `done`, `undone`, `notes`) it can reply with.
 
 ### Report site
 
@@ -132,8 +138,8 @@ Working in this repository, Claude Code picks up `.mcp.json`, which runs the thr
 packages/
   client/            @gw2kit/client: typed GW2 API client (every /v2 route), cache, rate limiter
   wiki/              @gw2kit/wiki: wiki client; Mystic Forge recipes and vendor offers from wiki data
-  recipes/           @gw2kit/recipes: recipe trees (crafting, Mystic Forge, vendors); fetch and solve
-  core/              @gw2-ai/core: markdown for models: account report, character pages, recipe-tree rendering
+  recipes/           @gw2kit/recipes: recipe trees and crafting plans (crafting, Mystic Forge, vendors); fetch and solve
+  core/              @gw2-ai/core: markdown for models: account report, character pages, recipe trees, crafting plans
   mcp-account/       MCP server for the player's account (needs an API key)
   mcp-data/          MCP server for items, recipes, prices, gem exchange, raw API
   mcp-wiki/          MCP server for wiki.guildwars2.com

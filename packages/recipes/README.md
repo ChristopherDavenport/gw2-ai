@@ -37,6 +37,24 @@ const mine = solveRecipeTree(data, 1, { have: new Map([[19675, 77]]) }); // alre
 
 Prices in `RecipeData` are a snapshot (`fetchedAt`); fetch again when you need current ones.
 
+## Crafting plans
+
+A `CraftingPlan` is the `RecipeData` plus what the player decided, finished, learned and owns: plain JSON with no I/O of its own. `solvePlan` turns it into steps, each consumer before what it consumes, with demand for a shared item summed before crafts are rounded up.
+
+```ts
+import { createPlan, parsePlan, solvePlan, updatePlan, withHoldings } from '@gw2kit/recipes';
+
+let plan = await createPlan(client, 30704, 1, { wiki });
+({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes; returns `errors`
+plan = withHoldings(plan, { items: { 19675: 77 }, wallet: {} });
+
+const { steps, coin } = solvePlan(plan);
+steps.filter((s) => s.undecided);                                   // recipe choices gold can't compare
+parsePlan(JSON.stringify(plan));                                    // read one back; throws if it isn't a plan
+```
+
+`refreshPrices(client, plan)` reads trading post prices again without refetching the graph. [`@gw2-ai/core`](https://www.npmjs.com/package/@gw2-ai/core) renders a plan as markdown.
+
 ## How choices are made
 
 - **Buy or craft:** each node takes the cheaper of the trading post's lowest sell listing and its cheapest complete recipe. A recipe with unpriced parts only wins when the item can't be bought.

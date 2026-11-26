@@ -63,7 +63,7 @@ export function createServer(): McpServer {
     { name: 'gw2-account', version: VERSION },
     {
       instructions:
-        'Guild Wars 2 account data via the player\'s API key: report, item locations, characters and builds, crafting shopping lists. ' +
+        'Guild Wars 2 account data via the player\'s API key: report, item locations, characters and builds, crafting shopping lists, holdings for saved crafting plans. ' +
         'Start with gw2_key_info if unsure what the key allows. Never ask the user to paste their API key into the chat; if none is configured, ' +
         'tell them to run `gw2-mcp-account set-key` in a terminal. Account data can lag the game by up to ~5 minutes. ' +
         'Use gw2-data for public item/price lookups and gw2-wiki for wiki pages.',
@@ -188,6 +188,21 @@ export function createServer(): McpServer {
       annotations: READ_ONLY,
     },
     ({ item_id, quantity }) => withClient((c) => tools.shoppingList(c, wiki, item_id, quantity)),
+  );
+
+  server.registerTool(
+    'gw2_plan_holdings',
+    {
+      title: 'Count holdings toward a crafting plan',
+      description:
+        'Read the account\'s bank, shared slots, character bags, material storage and wallet into a saved crafting plan (made with gw2_plan_create on gw2-data), ' +
+        'so its remaining counts and cost leave out what the player already has. Returns the new totals, open recipe decisions and the steps now covered. ' +
+        'Call it right after creating a plan, and again after the player has gathered, bought or crafted something. Changes only the local plan file. ' +
+        'Needs `inventories` (`characters` adds bags, `wallet` adds balances). Cost: ~6 API calls.',
+      inputSchema: { plan: z.string().min(1).max(80).describe('Saved plan name, e.g. "twilight".') },
+      annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
+    },
+    ({ plan }) => withClient((c) => tools.planHoldings(c, plan)),
   );
 
   server.registerTool(

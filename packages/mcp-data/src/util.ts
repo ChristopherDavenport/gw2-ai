@@ -1,8 +1,11 @@
 import { Gw2ApiError } from '@gw2kit/client';
 import type { CallToolResult } from '@modelcontextprotocol/sdk/types.js';
 
-/** Every tool here only reads, and reaches out to the public GW2 API or wiki. */
+/** Most tools here only read, and reach out to the public GW2 API or wiki. */
 export const READ_ONLY = { readOnlyHint: true, openWorldHint: true } as const;
+
+/** The crafting-plan tools also write plan files on this machine. */
+export const WRITES_PLAN = { readOnlyHint: false, destructiveHint: false, openWorldHint: true } as const;
 
 /** Default cap on tool output, in characters. */
 export const MAX_OUTPUT = 24_000;

@@ -168,6 +168,50 @@ export class WikiClient {
   }
 
   /**
+   * One section of a page as rendered, with tables and template-generated
+   * lists, which `page()` drops: where an item comes from is mostly in those.
+   * Rows are `cell | cell` lines. Null when the page or section is missing.
+   * `omit` names subsections to leave out (e.g. a long `Sold by` table).
+   */
+  async section(
+    title: string,
+    heading = 'Acquisition',
+    options: { maxChars?: number; omit?: readonly string[] } = {},
+  ): Promise<WikiPage | null> {
+    const index = await this.#call<{ parse?: { title: string; sections: { line: string; index: string }[] } }>({
+      action: 'parse',
+      prop: 'sections',
+      redirects: 1,
+      page: title,
+    }).catch((err: Error) => {
+      // action=parse reports a missing page as an error.
+      if (/doesn't exist/.test(err.message)) return undefined;
+      throw err;
+    });
+    const wanted = index?.parse?.sections.find((s) => s.line.toLowerCase() === heading.toLowerCase());
+    if (!index?.parse || !wanted) return null;
+    const data = await this.#call<{ parse?: { text: { '*': string } } }>({
+      action: 'parse',
+      prop: 'text',
+      redirects: 1,
+      page: title,
+      section: wanted.index,
+      disableeditsection: 1,
+      disablelimitreport: 1,
+    });
+    const html = data.parse?.text['*'];
+    if (html === undefined) return null;
+    const text = htmlToText(omitSubsections(html, options.omit ?? []));
+    const max = options.maxChars ?? 4_000;
+    return {
+      title: index.parse.title,
+      url: pageUrl(index.parse.title),
+      text: text.slice(0, max),
+      truncated: text.length > max,
+    };
+  }
+
+  /**
    * Semantic MediaWiki query, e.g. `[[Has game id::19721]]|?Has context`.
    * Returns rows of {title, url, ...printouts}.
    */
@@ -413,6 +457,41 @@ function parseVendorOffer(subject: string, p: Record<string, unknown[]>, itemTit
 
 export function pageUrl(title: string): string {
   return `${WIKI_BASE}/wiki/${encodeURIComponent(title.replace(/ /g, '_'))}`;
+}
+
+/** Cut each named heading and everything up to the next heading. */
+function omitSubsections(html: string, headings: readonly string[]): string {
+  if (!headings.length) return html;
+  const drop = new Set(headings.map((h) => h.toLowerCase()));
+  return html
+    .split(/(?=<h[1-6]\b)/i)
+    .filter((part) => {
+      const heading = /^<h([1-6])\b[^>]*>([\s\S]*?)<\/h\1>/i.exec(part);
+      return !heading || !drop.has(htmlToText(heading[2]!).toLowerCase());
+    })
+    .join('');
+}
+
+/** Rendered wiki HTML as plain lines: headings, list items and table rows. */
+export function htmlToText(html: string): string {
+  const entities: Record<string, string> = { amp: '&', lt: '<', gt: '>', quot: '"', nbsp: ' ', '#39': "'", '#039': "'", times: '×' };
+  return html
+    .replace(/<(style|script|sup)\b[^>]*>[\s\S]*?<\/\1>/gi, '')
+    .replace(/<!--[\s\S]*?-->/g, '')
+    // Long sections render their own table of contents; mark its entries to drop.
+    .replace(/<span class="tocnumber">/g, '\u0000')
+    .replace(/\s+/g, ' ')
+    .replace(/<\/t[dh]>\s*(?=<t[dh]\b)/gi, ' | ')
+    .replace(/<li\b[^>]*>/gi, '\n- ')
+    .replace(/<\/?(p|div|tr|table|ul|ol|dl|dt|dd|h[1-6]|br)\b[^>]*>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&(#?\w+);/g, (m, name: string) =>
+      entities[name] ?? (/^#\d+$/.test(name) ? String.fromCodePoint(Number(name.slice(1))) : m),
+    )
+    .split('\n')
+    .map((line) => line.replace(/\s+/g, ' ').trim())
+    .filter((line) => line && line !== '-' && line !== 'Contents' && !line.includes('\u0000'))
+    .join('\n');
 }
 
 function stripHtml(html: string): string {

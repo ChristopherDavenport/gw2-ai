@@ -1,5 +1,4 @@
 import {
-  Gw2ApiError,
   Gw2Client,
   TTL,
   looksLikeApiKey,
@@ -8,37 +7,12 @@ import {
 } from '@gw2kit/client';
 import { SECTIONS, TOKEN_TTL, buildReport, characterSectionId, type Report, type SectionResult } from '@gw2-ai/core';
 import { IdbCache } from './cache-store.js';
+import { $, describeError, downloadText, el, setStatus, setupTabs } from './dom.js';
 import { reportFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
+import { initPlanSection } from './plan-ui.js';
 import * as vault from './vault.js';
 import './style.css';
-
-// ---- DOM helpers ----------------------------------------------------------
-
-function $<T extends HTMLElement = HTMLElement>(id: string): T {
-  const node = document.getElementById(id);
-  if (!node) throw new Error(`missing #${id}`);
-  return node as T;
-}
-
-function el<K extends keyof HTMLElementTagNameMap>(
-  tag: K,
-  props: { className?: string; text?: string } = {},
-  ...children: (Node | string)[]
-): HTMLElementTagNameMap[K] {
-  const node = document.createElement(tag);
-  if (props.className) node.className = props.className;
-  if (props.text !== undefined) node.textContent = props.text;
-  node.append(...children);
-  return node;
-}
-
-type Tone = 'info' | 'ok' | 'error';
-
-function setStatus(node: HTMLElement, text: string, tone: Tone = 'info'): void {
-  node.textContent = text;
-  node.dataset.tone = tone;
-}
 
 // ---- Elements -------------------------------------------------------------
 
@@ -67,7 +41,7 @@ const raw = $<HTMLTextAreaElement>('raw');
 const preview = $('panel-preview');
 const copyStatus = $('copy-status');
 const sectionCopy = $('section-copy');
-const tabs = [$<HTMLButtonElement>('tab-raw'), $<HTMLButtonElement>('tab-preview')];
+const selectTab = setupTabs([$<HTMLButtonElement>('tab-raw'), $<HTMLButtonElement>('tab-preview')]);
 
 // ---- State ----------------------------------------------------------------
 
@@ -77,17 +51,9 @@ let token: TokenInfo | undefined;
 let report: Report | undefined;
 let accountName = 'account';
 let generating = false;
+const planSection = initPlanSection({ cache, account: () => (client ? { client, token } : undefined) });
 
 // ---- Key handling ---------------------------------------------------------
-
-function describeError(err: unknown): string {
-  if (err instanceof Gw2ApiError) {
-    if (err.isAuthError) return `The GW2 API rejected this key: ${err.text}`;
-    if (err.status === 0) return `Couldn't reach api.guildwars2.com (${err.text}). Check your connection and try again.`;
-    return `The GW2 API returned an error (${err.status}): ${err.text}`;
-  }
-  return err instanceof Error ? err.message : String(err);
-}
 
 async function checkKey(key: string): Promise<{ c: Gw2Client; info: TokenInfo }> {
   const c = new Gw2Client({ apiKey: key, cache });
@@ -106,6 +72,7 @@ function showKey(info: TokenInfo | undefined): void {
   keyPerms.textContent = info ? `· ${info.permissions.join(', ')}` : '';
   renderSections();
   void loadCharacters();
+  planSection.keyChanged();
 }
 
 function showKeyForm(): void {
@@ -114,6 +81,7 @@ function showKeyForm(): void {
   renderSections();
   characterList.replaceChildren();
   setStatus(characterStatus, 'Add an API key to list your characters.');
+  planSection.keyChanged();
 }
 
 keyForm.addEventListener('submit', (event) => {
@@ -184,6 +152,7 @@ async function forget(): Promise<void> {
   progressList.hidden = true;
   progressList.replaceChildren();
   setStatus(reportStatus, '');
+  void planSection.forgetHoldings();
   showKeyForm();
   keyInput.focus();
 }
@@ -445,41 +414,9 @@ $('copy-all').addEventListener('click', () => {
 
 $('download').addEventListener('click', () => {
   if (!report) return;
-  const blob = new Blob([report.markdown], { type: 'text/markdown;charset=utf-8' });
-  const url = URL.createObjectURL(blob);
-  const a = el('a');
-  a.href = url;
-  a.download = reportFilename(accountName, new Date());
-  document.body.append(a);
-  a.click();
-  a.remove();
-  setTimeout(() => URL.revokeObjectURL(url), 10_000);
-  setStatus(copyStatus, `Downloaded ${a.download}.`, 'ok');
-});
-
-function selectTab(index: number): void {
-  tabs.forEach((tab, i) => {
-    const selected = i === index;
-    tab.setAttribute('aria-selected', String(selected));
-    tab.tabIndex = selected ? 0 : -1;
-    const panel = $(tab.getAttribute('aria-controls') ?? '');
-    panel.hidden = !selected;
-  });
-}
-
-tabs.forEach((tab, i) => {
-  tab.addEventListener('click', () => selectTab(i));
-  tab.addEventListener('keydown', (event) => {
-    let next: number | undefined;
-    if (event.key === 'ArrowRight') next = (i + 1) % tabs.length;
-    else if (event.key === 'ArrowLeft') next = (i - 1 + tabs.length) % tabs.length;
-    else if (event.key === 'Home') next = 0;
-    else if (event.key === 'End') next = tabs.length - 1;
-    if (next === undefined) return;
-    event.preventDefault();
-    selectTab(next);
-    tabs[next]?.focus();
-  });
+  const name = reportFilename(accountName, new Date());
+  downloadText(name, report.markdown, 'text/markdown');
+  setStatus(copyStatus, `Downloaded ${name}.`, 'ok');
 });
 
 // ---- Start ----------------------------------------------------------------

@@ -2,6 +2,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { RateLimiter } from '@gw2kit/client';
 import { WikiClient } from '../src/index.js';
+import { htmlToText } from '../src/wiki.js';
 
 // Real /api.php?action=ask response for outputs 19674 (Gift of Mastery) and 19675 (Mystic Clover).
 const FIXTURE = readFileSync(new URL('./fixtures/wiki-mystic-forge.json', import.meta.url), 'utf8');
@@ -73,5 +74,65 @@ describe('WikiClient vendor offers', () => {
     const { client, queries } = wiki();
     expect(await client.vendorOffers('X]][[Has vendor::Y')).toEqual([]);
     expect(queries).toHaveLength(0);
+  });
+});
+
+describe('htmlToText', () => {
+  it('keeps list items and table rows, and drops markup, footnotes and the table of contents', () => {
+    const html = `<div id="toc" class="toc"><h2>Contents</h2><ul>
+      <li class="toclevel-1"><a href="#a"><span class="tocnumber">1</span> <span class="toctext">Sold by</span></a></li></ul></div>
+      <h3>Sold by</h3><!-- note --><style>.x{}</style>
+      <ul><li>250 <a href="/wiki/Obsidian_Shard">Obsidian Shard</a><sup>[1]</sup></li><li>Miyani &amp; Leivas &#215; 2</li></ul>
+      <table><tr><th>Vendor</th> <th>Cost</th></tr>
+      <tr><td>Miyani</td>
+      <td>1&nbsp;000</td></tr></table>`;
+    expect(htmlToText(html)).toBe(
+      ['Sold by', '- 250 Obsidian Shard', '- Miyani & Leivas × 2', 'Vendor | Cost', 'Miyani | 1 000'].join('\n'),
+    );
+  });
+});
+
+describe('WikiClient.section', () => {
+  function sectionWiki() {
+    const fetch = (async (input: URL | string) => {
+      const q = new URL(String(input)).searchParams;
+      if (q.get('page') === 'Nothing') {
+        return new Response(JSON.stringify({ error: { code: 'missingtitle', info: "The page you specified doesn't exist." } }));
+      }
+      if (q.get('prop') === 'sections') {
+        return new Response(JSON.stringify({ parse: { title: 'Mystic Coin', sections: [{ line: 'Notes', index: '1' }, { line: 'Acquisition', index: '2' }] } }));
+      }
+      expect(q.get('section')).toBe('2');
+      return new Response(JSON.stringify({ parse: { text: { '*': '<h2>Acquisition</h2><ul><li>Daily login</li></ul>' } } }));
+    }) as typeof globalThis.fetch;
+    return new WikiClient({ fetch, rateLimiter: new RateLimiter(1000, 60_000) });
+  }
+
+  it('reads one section as text, cut to maxChars', async () => {
+    expect(await sectionWiki().section('mystic coin', 'acquisition')).toEqual({
+      title: 'Mystic Coin',
+      url: 'https://wiki.guildwars2.com/wiki/Mystic_Coin',
+      text: 'Acquisition\n- Daily login',
+      truncated: false,
+    });
+    expect(await sectionWiki().section('Mystic Coin', 'Acquisition', { maxChars: 5 })).toMatchObject({ text: 'Acqui', truncated: true });
+  });
+
+  it('returns null for a missing page or section', async () => {
+    expect(await sectionWiki().section('Mystic Coin', 'Trivia')).toBeNull();
+    expect(await sectionWiki().section('Nothing')).toBeNull();
+  });
+});
+
+describe('WikiClient.section omit', () => {
+  it('leaves out a named subsection and keeps the ones after it', async () => {
+    const html = '<h2>Acquisition</h2><h3><span>Sold by</span></h3><table><tr><td>Miyani</td></tr></table><h3>Contained in</h3><ul><li>Chest</li></ul>';
+    const fetch = (async (input: URL | string) => {
+      const sections = new URL(String(input)).searchParams.get('prop') === 'sections';
+      const parse = sections ? { title: 'Coin', sections: [{ line: 'Acquisition', index: '1' }] } : { text: { '*': html } };
+      return new Response(JSON.stringify({ parse }));
+    }) as typeof globalThis.fetch;
+    const client = new WikiClient({ fetch, rateLimiter: new RateLimiter(1000, 60_000) });
+    expect((await client.section('Coin', 'Acquisition', { omit: ['sold by'] }))?.text).toBe('Acquisition\nContained in\n- Chest');
   });
 });

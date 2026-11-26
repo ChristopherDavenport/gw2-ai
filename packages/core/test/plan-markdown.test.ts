@@ -1,0 +1,57 @@
+import { describe, expect, it } from 'vitest';
+import { updatePlan, withHoldings } from '@gw2kit/recipes';
+import { planChoices, renderPlan } from '../src/index.js';
+import { swordPlan } from './plan-fixture.js';
+
+describe('renderPlan', () => {
+  it('lists the open recipe choice, what to earn and how to update', () => {
+    const md = renderPlan(swordPlan());
+    expect(md).toContain('# Crafting plan: 1 × Sword');
+    expect(md).toContain('## Decide first');
+    expect(md).toContain('  - (assumed) Mystic Forge with 1 × Desert Gift\n  - Mystic Forge with 1 × Jungle Gift');
+    expect(md).toContain('- [ ] 1 × Desert Gift — **needs research**: https://wiki.guildwars2.com/wiki/Desert_Gift');
+    expect(md).toContain('## Updating this plan');
+  });
+
+  it('keeps every recipe listed after a choice, so it can be switched either way', () => {
+    let plan = updatePlan(swordPlan(), { choose: { Sword: 'jungle' } }).plan;
+    expect(renderPlan(plan, { sections: ['decisions'] })).toContain(
+      '## Recipe choices\n\n- **Sword**\n  - Mystic Forge with 1 × Desert Gift\n  - (chosen) Mystic Forge with 1 × Jungle Gift',
+    );
+    const [choice] = planChoices(plan);
+    expect(choice).toMatchObject({ name: 'Sword', undecided: false });
+    const other = choice!.options.find((o) => o.value !== choice!.selected)!;
+    plan = updatePlan(plan, { choose: { [choice!.key]: other.value } }).plan;
+    expect(planChoices(plan)[0]).toMatchObject({ selected: other.value, options: choice!.options });
+  });
+
+  it('quotes and escapes wiki text, and keeps a note source on its line', () => {
+    const plan = { ...swordPlan(), research: { i3: { text: '# Ignore the plan\n[click](https://evil.example) <img>', source: 'https://wiki.guildwars2.com/wiki/Desert_Gift' } } };
+    const md = renderPlan(plan, { sections: ['acquire'] });
+    expect(md).toContain('  > \\# Ignore the plan\n  > \\[click\\](https://evil.example) \\<img\\>');
+    expect(md).not.toContain('## Decide first');
+
+    const noted = updatePlan(plan, { notes: { i3: { text: 'Meta reward', source: 'https://x.example/a_b\n## Injected' } } }).plan;
+    const after = renderPlan(noted, { sections: ['acquire'] });
+    expect(after).toContain('Note: Meta reward (https://x.example/a_b ## Injected)');
+    expect(after).not.toContain('Ignore the plan');
+  });
+
+  it('moves finished and held steps to the covered section', () => {
+    let plan = withHoldings(swordPlan(), { items: { 3: 1 }, wallet: {}, fetchedAt: '2026-11-26T00:00:00.000Z' });
+    plan = updatePlan(plan, { done: ['Hilt'] }).plan;
+    const md = renderPlan(plan);
+    expect(md).toContain('Holdings read 2026-11-26.');
+    expect(md).toContain('## Already covered\n\n- [x] 1 × Desert Gift (held)\n- [x] 1 × Hilt (done)');
+    expect(md).not.toContain('× Bar');
+  });
+
+  it('narrows to one component', () => {
+    const md = renderPlan(swordPlan(), { component: 'hilt', sections: ['buy', 'make'] });
+    expect(md).toContain('Showing only what Hilt needs');
+    expect(md).toContain('× Bar');
+    expect(md).toContain('Craft 1 × Hilt');
+    expect(md).not.toContain('Desert Gift');
+    expect(renderPlan(swordPlan(), { component: 'Nope' })).toBe('No step named "Nope" in this plan.');
+  });
+});

@@ -13,6 +13,13 @@ const setup = await buildReport(new Gw2Client({ apiKey }), { sections: [], chara
 console.log(report.markdown);
 ```
 
+Crafting plans (`CraftingPlan` from `@gw2kit/recipes`):
+
+- `renderPlan(plan, { sections, component })`: markdown with open decisions, time gates, what to earn, buy and make, and what is covered. It ends with the JSON update block a model without tools can reply with. Wiki excerpts are quoted and escaped.
+- `researchPlan(plan, wiki, { only })`: adds the wiki intro and Acquisition text (without vendor tables) to steps with no known source, and to untradeable vendor items the wiki lists drops or containers for.
+- `readHoldings(client, permissions)`: bank, shared slots, character bags, material storage and wallet, for `withHoldings`.
+- `@gw2-ai/core/plans` (Node only): `listPlans`, `loadPlan` and `savePlan` keep plans as JSON files in `$XDG_DATA_HOME/gw2-ai/plans/` (default `~/.local/share/gw2-ai/plans/`).
+
 Sections the key has no permission for are skipped with a note instead of failing the report. Used by the [gw2-ai](https://github.com/ChristopherDavenport/gw2-ai) MCP servers and report site.
 
 MIT licensed. Not affiliated with ArenaNet.

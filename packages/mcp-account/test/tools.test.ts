@@ -1,7 +1,12 @@
+import { mkdtemp, rm } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import { Gw2Client, RateLimiter } from '@gw2kit/client';
 import { WikiClient } from '@gw2kit/wiki';
 import { describe, expect, it } from 'vitest';
-import { character, findItem, keyInfo, shoppingList } from '../src/tools.js';
+import { planFromData } from '@gw2kit/recipes';
+import { loadPlan, savePlan } from '@gw2-ai/core/plans';
+import { character, findItem, keyInfo, planHoldings, shoppingList } from '../src/tools.js';
 
 const KEY = '00000000-0000-0000-0000-00000000000000000000-0000-0000-0000-000000000000';
 
@@ -138,5 +143,34 @@ describe('account tools', () => {
     expect(md).not.toMatch(/\| Mithril Ore \| 19700 \| \d+ \| 10c/);
     expect(md).toContain('**Total: 1s**');
     expect(md).toContain('Taken from your holdings');
+  });
+});
+
+describe('planHoldings', () => {
+  const plan = () =>
+    planFromData({
+      version: 1, rootId: 46742, maxDepth: 10, fetchedAt: '2026-11-26T00:00:00.000Z',
+      items: { 46742: { name: 'Lump of Mithrillium' }, 19700: { name: 'Mithril Ore', sell: 10 } },
+      searched: [46742, 19700],
+      recipes: { 46742: [{ source: 'crafting', id: 1, disciplines: ['Armorsmith'], min_rating: 450, output_count: 1, ingredients: [{ type: 'Item', id: 19700, count: 100 }] }] },
+      currencies: {}, guildUpgrades: {}, vendors: {}, vendorUnmatched: [], status: {},
+    });
+
+  it('saves what the account holds into the plan', async () => {
+    const dir = await mkdtemp(join(tmpdir(), 'gw2-holdings-'));
+    try {
+      await savePlan('lump', plan(), dir);
+      const out = await planHoldings(setup(['account', 'inventories']).client, 'lump', dir);
+      expect(out).toContain('Holdings saved to plan `lump`');
+      expect(out).toContain('wallet unavailable');
+      expect(out).toContain('- [x] 100 × Mithril Ore (held)');
+      expect((await loadPlan('lump', dir)).holdings.items).toEqual({ 19700: 150, 46742: 1 });
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('needs inventories', async () => {
+    await expect(planHoldings(setup(['account']).client, 'lump')).rejects.toThrow(/gw2_plan_holdings needs the `inventories`/);
   });
 });
