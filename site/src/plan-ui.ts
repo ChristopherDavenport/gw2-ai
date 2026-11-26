@@ -45,9 +45,8 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   const addBtn = $<HTMLButtonElement>('plan-add');
   const goalBox = $<HTMLFieldSetElement>('plan-goals');
   const goalList = $('plan-goal-list');
-  const sellBox = $<HTMLFieldSetElement>('plan-sales');
-  const sellToggle = $<HTMLInputElement>('plan-sales-on');
-  const sellControls = $('plan-sales-controls');
+  const sellBox = $<HTMLDetailsElement>('plan-sales');
+  const sellStatus = $('plan-sales-status');
   const sellHint = $('plan-sales-hint');
   const buildBtn = $<HTMLButtonElement>('plan-build');
   const loadBtn = $<HTMLButtonElement>('plan-load');
@@ -86,6 +85,11 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     $('plan-setting-list').append(row);
     return { name, input, row };
   });
+  const sellToggle = el('input');
+  sellToggle.type = 'checkbox';
+  sellToggle.id = 'plan-sell';
+  const sellRow = el('label', {}, sellToggle, ' Sell spare materials for the remaining gold');
+  settingInputs.find((s) => s.name === 'useOwnMaterials')!.row.after(sellRow);
 
   const background = $('plan-background');
   const outputButtons = ['plan-copy', 'plan-download-md', 'plan-download-json'].map((id) => $<HTMLButtonElement>(id));
@@ -112,7 +116,6 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     for (const b of [buildBtn, newBtn, addBtn, loadBtn, pricesBtn, applyBtn, ...outputButtons]) b.disabled = busy;
     choiceBox.disabled = busy;
     goalBox.disabled = busy;
-    sellBox.disabled = busy;
     settingsBox.disabled = busy;
     showSettings();
   }
@@ -144,24 +147,36 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   function showSelling(plan: CraftingPlan, using: boolean): void {
     // Without holdings there is no shortfall, and nothing to hold back for the plan.
-    if (!using) selling = undefined;
-    sellBox.hidden = !using;
+    // Before the sales are read, the holdings may still be on their way.
+    if (selling?.read && !using) dropSales();
+    sellRow.hidden = holdingsBlocker() !== undefined;
     sellToggle.checked = selling !== undefined;
-    sellControls.hidden = selling === undefined;
+    sellBox.hidden = selling === undefined;
     const sellables = selling?.read?.sellables;
     if (!sellables) {
       sellHint.textContent = '';
       return;
     }
-    const short = planShortfall(plan);
     sellHint.textContent = [
-      short === 0 ? 'Your wallet already covers this plan, so no sales are listed.' : '',
-      short === undefined ? 'Your gold was not read (the key needs `wallet`), so everything spare is listed.' : '',
+      shortfallText(planShortfall(plan)),
       keepWarning(readSaleControls('plan-sales').keep, sellables),
-      'Untick and tick again to re-read what you can sell.',
+      'Untick and tick “Sell spare materials” again to re-read what you can sell.',
     ]
       .filter(Boolean)
       .join(' ');
+  }
+
+  function shortfallText(short: number | undefined): string {
+    if (short === 0) return 'Your wallet already covers this plan: there is no remaining gold to raise, so no sales are listed.';
+    if (short !== undefined) return 'The sales are in the plan under “Raise the gold from spare materials”.';
+    const permitted = options.account()?.token?.permissions.includes('wallet');
+    const why = permitted ? 'no gold balance was read from your wallet' : 'your key lacks the wallet permission';
+    return `How much gold you still need is unknown, because ${why}. Everything spare is listed instead.`;
+  }
+
+  function dropSales(): void {
+    selling = undefined;
+    setStatus(sellStatus, '');
   }
 
   /** The plan's markdown, with sales for its shortfall when asked for. */
@@ -197,7 +212,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       merged = { ...merged, data };
       graphs++;
     }
-    if (replace) selling = undefined;
+    if (replace) dropSales();
     const next = epoch === holdingsEpoch ? merged : withoutHoldings(merged);
     show(next, render(next), replace ? ++builds : builds);
     if (replace) {
@@ -235,6 +250,8 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   /** The plan as far as it goes before vendors are checked. Not kept or copyable. */
   function showPartial(data: RecipeData, goals: { itemId: number; quantity: number }[]): void {
     for (const box of [choiceBox, sellBox]) box.hidden = true;
+    sellToggle.checked = false;
+    sellHint.textContent = '';
     shownChoices = '';
     showMarkdown(`> Still loading: vendors are being checked, so steps and totals will change.\n\n${renderPlan(planFromData(data, goals))}`);
   }
@@ -627,7 +644,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     current = undefined;
     // Lookups still running belong to the plan that was dropped.
     builds++;
-    selling = undefined;
+    dropSales();
     shownChoices = '';
     output.hidden = true;
     raw.value = '';
@@ -743,18 +760,31 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   // ---- Holdings and prices ----
 
+  const READING_HOLDINGS = 'Reading your bank, bags, materials and wallet...';
+
+  /**
+   * Read holdings and use them in `plan`. Resolves to the gaps in what was read,
+   * or undefined when the key was forgotten meanwhile and nothing was kept.
+   */
+  async function applyHoldings({ client, token }: Account, plan: CraftingPlan, epoch: number): Promise<string[] | undefined> {
+    const info = token ?? (await client.get('/v2/tokeninfo'));
+    const { holdings, notes } = await readHoldings(client, info.permissions);
+    if (epoch !== holdingsEpoch) return undefined;
+    await commit(updatePlan(withHoldings(plan, holdings), { settings: { useOwnMaterials: true } }).plan, epoch);
+    return notes;
+  }
+
+  const HOLDINGS_DISCARDED = 'The key was forgotten, so the holdings were discarded.';
+
   function useHoldings(): void {
     const account = options.account();
     if (!account || !current || busy) return showSettings();
     const { plan } = current;
     const epoch = holdingsEpoch;
-    void run(copyStatus, 'Reading your bank, bags, materials and wallet...', async () => {
+    void run(copyStatus, READING_HOLDINGS, async () => {
       try {
-        const token = account.token ?? (await account.client.get('/v2/tokeninfo'));
-        const { holdings, notes } = await readHoldings(account.client, token.permissions);
-        if (epoch !== holdingsEpoch) return ['The key was forgotten, so the holdings were discarded.', 'info'];
-        const on = updatePlan(withHoldings(plan, holdings), { settings: { useOwnMaterials: true } }).plan;
-        await commit(on, epoch);
+        const notes = await applyHoldings(account, plan, epoch);
+        if (!notes) return [HOLDINGS_DISCARDED, 'info'];
         return notes.length ? [`Using your materials, with gaps: ${notes.join('; ')}.`, 'info'] : ['Using your materials.', 'ok'];
       } catch (err) {
         showSettings();
@@ -776,34 +806,53 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   // ---- Sales for the shortfall ----
 
-  /** Read the conversions the boxes ask for, saying so and counting the wait. */
+  /** Like `run`, reporting beside the selling checkbox and counting the whole wait. */
+  function whileSelling(message: string, task: () => Promise<[text: string, tone: Tone]>): void {
+    setStatus(copyStatus, '');
+    void run(sellStatus, message, async () => {
+      const stop = startClock($('plan-sales-elapsed'));
+      try {
+        return await task();
+      } finally {
+        stop();
+      }
+    });
+  }
+
+  /** Read the conversions the boxes ask for, saying so. */
   async function loadConversions(read: AccountSales): Promise<void> {
     const wants = readConvertControls('plan-sales');
     const missing = read.conversions.missing(wants);
     if (!missing.length) return;
-    setStatus(copyStatus, checkingText(missing));
-    const stop = startClock($('plan-sales-elapsed'));
-    try {
-      await read.conversions.load(wants);
-    } finally {
-      stop();
-    }
+    setStatus(sellStatus, checkingText(missing));
+    await read.conversions.load(wants);
   }
 
+  /** Add sales to the plan, using the player's materials first if it doesn't yet. */
   function readSales(): void {
     const account = options.account();
     if (!account || !current || busy) return showSettings();
+    const { plan } = current;
     const epoch = holdingsEpoch;
     const wanted = (selling = { client: account.client });
-    void run(copyStatus, 'Reading what you can sell...', async () => {
+    const discarded = () => epoch !== holdingsEpoch || selling !== wanted;
+    const using = holdingsInUse(plan);
+    const reading = 'Reading what you can sell...';
+    whileSelling(using ? reading : READING_HOLDINGS, async () => {
       try {
+        let gaps: string[] = [];
+        if (!using) {
+          const notes = await applyHoldings(account, plan, epoch);
+          if (!notes) return [HOLDINGS_DISCARDED, 'info'];
+          gaps = notes;
+          setStatus(sellStatus, reading);
+        }
         const read = await readAccountSellables(account);
-        const discarded = () => epoch !== holdingsEpoch || selling !== wanted;
         if (!discarded()) await loadConversions(read);
         if (discarded()) return ['What was read to sell was discarded.', 'info'];
         selling = { ...wanted, read };
         rerender();
-        return ['Sales added to the plan.', 'ok'];
+        return gaps.length ? [`Using your materials, with gaps: ${gaps.join('; ')}.`, 'info'] : ['', 'ok'];
       } catch (err) {
         selling = undefined;
         showSettings();
@@ -816,7 +865,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   function readMoreConversions(read: AccountSales): void {
     const epoch = holdingsEpoch;
     const wanted = selling;
-    void run(copyStatus, 'Reading...', async () => {
+    whileSelling('Reading...', async () => {
       await loadConversions(read);
       if (epoch !== holdingsEpoch || selling !== wanted) return ['What was read to sell was discarded.', 'info'];
       rerender();
@@ -824,14 +873,22 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     });
   }
 
-  sellBox.addEventListener('change', (event) => {
+  sellToggle.addEventListener('change', () => {
     if (busy) return;
-    if (event.target === sellToggle && sellToggle.checked) return readSales();
-    if (event.target === sellToggle) selling = undefined;
-    const read = selling?.read;
-    if (read && read.conversions.missing(readConvertControls('plan-sales')).length) return readMoreConversions(read);
+    if (sellToggle.checked) return readSales();
+    dropSales();
     rerender();
     setStatus(copyStatus, '');
+  });
+
+  // The selling options.
+  sellBox.addEventListener('change', () => {
+    if (busy) return;
+    const read = selling?.read;
+    if (read && read.conversions.missing(readConvertControls('plan-sales')).length) return readMoreConversions(read);
+    setStatus(sellStatus, '');
+    setStatus(copyStatus, '');
+    rerender();
   });
 
   // ---- Updates ----
@@ -881,14 +938,14 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     keyChanged() {
       // What was read to sell belongs to the key that read it.
       if (selling && selling.client !== options.account()?.client) {
-        selling = undefined;
+        dropSales();
         rerender();
       }
       updateControls();
     },
     async forgetHoldings() {
       holdingsEpoch++;
-      selling = undefined;
+      dropSales();
       await restored;
       if (current) await commit(withoutHoldings(current.plan));
       // A saved plan that couldn't be restored may still hold account data.
