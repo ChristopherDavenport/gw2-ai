@@ -3,6 +3,7 @@
  * crafting (including refinement) or Mystic Forge promotion. One step only.
  * Pure; `readConversions` in convert-read.ts gathers what it needs.
  */
+import { DAILY_ITEMS } from '@gw2kit/recipes';
 import { sellProceeds } from './fees.js';
 import { PROMOTIONS, STONES_PER_SHARD } from './promotions-data.js';
 
@@ -171,7 +172,9 @@ function best(
   const mainId = recipe.kind === 'promote' ? lowerTier(recipe) : undefined;
   const main = recipe.inputs.find(([id]) => id === mainId) ?? [...recipe.inputs].sort((a, b) => worth(b[0], b[1]) - worth(a[0], a[1]))[0];
   if (!main) return undefined;
-  const most = Math.floor((state.spare.get(main[0]) ?? 0) / main[1]);
+  const stocked = Math.floor((state.spare.get(main[0]) ?? 0) / main[1]);
+  // A once-a-day recipe is one craft in today's list.
+  const most = recipe.kind === 'craft' && DAILY_ITEMS.has(recipe.output) ? Math.min(1, stocked) : stocked;
   if (most < 1) return undefined;
   const sizes = new Set<number>([most]);
   for (let i = 1; i <= Math.min(SIZES, most); i++) sizes.add(Math.max(1, Math.floor((most * i) / Math.min(SIZES, most))));
