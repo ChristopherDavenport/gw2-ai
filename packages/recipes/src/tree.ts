@@ -301,7 +301,7 @@ export async function fetchRecipeData(
         for (const r of await wiki.mysticForgeRecipes(frontier)) {
           const recipe = fromForge(r);
           if (recipe) found.push([r.output_item_id, recipe]);
-          const promotion = data.promotions && fromPromotion(r);
+          const promotion = data.promotions && materialPromotion(r);
           if (promotion) promoted.push([r.output_item_id, promotion]);
         }
         data.status.mysticForge = { status: 'ok' };
@@ -601,7 +601,7 @@ const PHILOSOPHERS_STONE = 20796;
 const PROMOTION_AVERAGE: Record<number, number> = { 40: 86.34, 10: 18.92, 7: 18.51, 5: 6.91 };
 
 /** A material promotion: a random forge that takes one of what it makes, plus a Philosopher's Stone. */
-function fromPromotion(r: MysticForgeRecipe): SourceRecipe | undefined {
+export function materialPromotion(r: MysticForgeRecipe): SourceRecipe | undefined {
   const seed = r.ingredients.find((i) => i.item_id === r.output_item_id);
   const average = PROMOTION_AVERAGE[r.output_item_count];
   if (r.base || !seed || !average || !r.ingredients.some((i) => i.item_id === PHILOSOPHERS_STONE)) return undefined;

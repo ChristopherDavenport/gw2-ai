@@ -8,6 +8,11 @@ export function planReserve(plan: CraftingPlan): Map<number, number> {
   return new Map(solved.steps.filter((s) => s.kind === 'Item' && s.owned > 0).map((s) => [s.id, s.owned]));
 }
 
+const SPIRIT_SHARD = 23;
+
+/** Spirit Shards the plan's steps call for. */
+const planShards = (plan: CraftingPlan) => solvePlan(plan).steps.find((s) => s.kind === 'Currency' && s.id === SPIRIT_SHARD)?.need ?? 0;
+
 /** Gold the plan needs beyond the wallet; undefined until holdings, wallet included, have been read. */
 export function planShortfall(plan: CraftingPlan): number | undefined {
   const wallet = plan.holdings.wallet[1];
@@ -28,5 +33,16 @@ export function salesForPlan(
   const shortfall = planShortfall(plan);
   // Coins waiting in the delivery box are gold already, so nothing is sold to raise them.
   const target = sale.target ?? (shortfall === undefined ? undefined : Math.max(0, shortfall - delivery));
-  return planSales(items, { ...sale, ...(target !== undefined ? { target } : {}), reserve: planReserve(plan) });
+  // Spirit Shards the plan will spend are not there for promotions.
+  const shards = sale.conversions?.spiritShards;
+  const conversions =
+    sale.conversions && shards !== undefined
+      ? { ...sale.conversions, spiritShards: Math.max(0, shards - planShards(plan)) }
+      : sale.conversions;
+  return planSales(items, {
+    ...sale,
+    ...(conversions ? { conversions } : {}),
+    ...(target !== undefined ? { target } : {}),
+    reserve: planReserve(plan),
+  });
 }

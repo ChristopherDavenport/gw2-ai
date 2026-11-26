@@ -21,7 +21,7 @@ const ITEMS: Record<number, { name: string; rarity?: string; type?: string; deta
   3000: { name: '20 Slot Invisible Bag', rarity: 'Ascended' },
 };
 
-function setup(permissions: string[]) {
+function setup(permissions: string[], market: { ore?: number; ingot?: number; recipesFail?: boolean } = {}) {
   const calls: string[] = [];
   const fetch = (async (input: URL | string) => {
     const url = new URL(String(input));
@@ -48,7 +48,7 @@ function setup(permissions: string[]) {
         return ok([]);
       case '/v2/characters':
         return url.searchParams.get('ids') === 'all'
-          ? ok([{ name: 'Alice', bags: [{ id: 3000, size: 20, inventory: [{ id: 19721, count: 3 }, null] }], equipment: [] }])
+          ? ok([{ name: 'Alice', crafting: [{ discipline: 'Armorsmith', rating: 500, active: true }], bags: [{ id: 3000, size: 20, inventory: [{ id: 19721, count: 3 }, null] }], equipment: [] }])
           : ok(['Alice']);
       case '/v2/characters/Alice':
         return ok({
@@ -78,15 +78,19 @@ function setup(permissions: string[]) {
         return ok(ids.map((id) => ({ id, name: `Skill ${id}` })));
       case '/v2/commerce/prices':
         return ok(ids.filter((id) => [19721, 19700, 46747, 19684].includes(id)).map((id) => ({
-          id, buys: { unit_price: 1, quantity: 1 }, sells: { unit_price: id === 19721 ? 2000 : id === 19684 ? 200 : 10, quantity: 1 },
+          id,
+          buys: { unit_price: (id === 19700 ? market.ore : id === 19684 ? market.ingot : undefined) ?? 1, quantity: 1 },
+          sells: { unit_price: id === 19721 ? 2000 : id === 19684 ? Math.max(200, market.ingot ?? 0) : Math.max(10, id === 19700 ? (market.ore ?? 0) : 0), quantity: 1 },
         })));
       case '/v2/recipes/search':
+        if (url.searchParams.has('input') && market.recipesFail) return new Response(JSON.stringify({ text: 'down' }), { status: 503 });
+        if (url.searchParams.get('input') === '19700') return ok([2]);
         return ok(url.searchParams.get('output') === '46742' ? [1] : url.searchParams.get('output') === '19684' ? [2] : []);
       case '/v2/recipes':
         return ok([
           { id: 1, output_item_id: 46742, output_item_count: 1, disciplines: ['Armorsmith'], min_rating: 450,
             ingredients: [{ type: 'Item', id: 19684, count: 50 }, { type: 'Item', id: 19721, count: 1 }, { type: 'Item', id: 46747, count: 10 }] },
-          { id: 2, output_item_id: 19684, output_item_count: 1, disciplines: ['Armorsmith'], min_rating: 150,
+          { id: 2, output_item_id: 19684, output_item_count: 1, disciplines: ['Armorsmith'], min_rating: 150, flags: ['AutoLearned'],
             ingredients: [{ type: 'Item', id: 19700, count: 2 }] },
         ].filter((r) => ids.includes(r.id)));
       default:
@@ -210,6 +214,29 @@ describe('raiseGold', () => {
     await expect(raiseGold(setup(['account']).client, {})).rejects.toThrow(/gw2_raise_gold needs the `inventories`/);
   });
 
+  // 150 ore at 1s: 150 ingots' worth of stack, over the 1g that gets recipes looked up.
+  const DEAR = { ore: 100, ingot: 400 };
+
+  it('crafts first when that raises more, unless told not to', async () => {
+    const md = await raiseGold(setup(SELLER, DEAR).client, {});
+    expect(md).toContain('Craft 75 × Mithril Ingot (Armorsmith 150) from 150 × Mithril Ore');
+    expect(md).toContain('learned recipes unknown (needs `unlocks`)');
+    expect(md).toContain('Only one step of crafting is considered');
+    const { client, calls } = setup(SELLER, DEAR);
+    const plain = await raiseGold(client, { craft: false });
+    expect(plain).toContain('150 × Mithril Ore to buy orders');
+    expect(plain).not.toContain('Craft ');
+    expect(plain).toContain('Nothing is crafted, promoted');
+    expect(calls).not.toContain('/v2/recipes/search');
+  });
+
+  it('sells materials as they are when recipes cannot be read', async () => {
+    const md = await raiseGold(setup(SELLER, { ...DEAR, recipesFail: true }).client, {});
+    expect(md).toContain('150 × Mithril Ore to buy orders');
+    expect(md).toContain('recipes or their prices could not be read');
+    expect(md).toContain('Nothing is crafted, promoted');
+  });
+
   it('refreshes a plan, aims at its shortfall and holds back what it uses', () =>
     inTempDir(async (dir) => {
       // 200 ore needed, 150 held, 100c in the wallet: 4s short.
@@ -226,6 +253,14 @@ describe('raiseGold', () => {
       expect(unread).toContain('× Glob of Ectoplasm listed');
       expect(md).not.toMatch(/Sell [\d,]+( of [\d,]+)? × Mithril Ore/);
       expect((await loadPlan('lump', dir)).holdings.items[19700]).toBe(150);
+    }));
+
+  it('converts only what a plan does not use', () =>
+    inTempDir(async (dir) => {
+      // The plan counts on 100 of the 150 ore.
+      await savePlan('lump', lumpPlan(), dir);
+      const md = await raiseGold(setup(SELLER, { ore: 100, ingot: 500 }).client, { plan: 'lump', targetGold: 1 }, dir);
+      expect(md).toContain('Craft 25 × Mithril Ingot (Armorsmith 150) from 50 × Mithril Ore');
     }));
 
   it('says so when a plan is not short, unless given a target', () =>

@@ -3,8 +3,9 @@
  * account holds is account data: it stays in memory and is never stored.
  */
 import { missingPermissions, type Gw2Client, type TokenInfo } from '@gw2kit/client';
-import { planSales, readSellables, renderSales, type SaleOptions, type Sellables } from '@gw2-ai/core';
-import { $, describeError, downloadText, setStatus, setupTabs } from './dom.js';
+import { planSales, readConversions, readSellables, renderSales, type SaleOptions, type Sellables } from '@gw2-ai/core';
+import { ConversionReads, type ConversionKind, type ConversionWants } from './conversions.js';
+import { $, describeError, downloadText, setStatus, setupTabs, startClock } from './dom.js';
 import { salesFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
 import { parseGold, parseKeep, unmatchedKeep } from './sales-input.js';
@@ -29,10 +30,31 @@ export function keepWarning(keep: readonly string[], sellables: Sellables): stri
   return unknown.length ? `Nothing you can sell is called: ${unknown.join(', ')}. Check the spelling.` : '';
 }
 
-/** Read what the account could sell. */
-export async function readAccountSellables({ client, token }: Account): Promise<Sellables> {
+/** What the `<prefix>-craft` and `-promote` boxes say. */
+export function readConvertControls(prefix: string): ConversionWants {
+  return { craft: $<HTMLInputElement>(`${prefix}-craft`).checked, promote: $<HTMLInputElement>(`${prefix}-promote`).checked };
+}
+
+/** What to say while `kinds` are being read. */
+export const checkingText = (kinds: readonly ConversionKind[]): string =>
+  kinds.includes('craft')
+    ? 'Checking which materials are worth crafting first. Looking up recipes takes about 20 seconds...'
+    : 'Checking Mystic Forge promotions...';
+
+/** One read of the account: what can be sold, and the conversions looked up for it so far. */
+export interface AccountSales {
+  sellables: Sellables;
+  conversions: ConversionReads;
+}
+
+/** Read what the account could sell. Conversions are read when first asked for. */
+export async function readAccountSellables({ client, token }: Account): Promise<AccountSales> {
   const info = token ?? (await client.get('/v2/tokeninfo'));
-  return readSellables(client, info.permissions);
+  const sellables = await readSellables(client, info.permissions);
+  const conversions = new ConversionReads((kind) =>
+    readConversions(client, info.permissions, sellables.items, { craft: kind === 'craft', promote: kind === 'promote' }),
+  );
+  return { sellables, conversions };
 }
 
 export function initSalesSection(options: { account(): Account | undefined; cache: { flush(): Promise<void> } }): {
@@ -50,8 +72,10 @@ export function initSalesSection(options: { account(): Account | undefined; cach
   const selectTab = setupTabs([$<HTMLButtonElement>('sales-tab-raw'), $<HTMLButtonElement>('sales-tab-preview')]);
 
   /** The last read, and the client it was made with. */
-  let read: { client: Gw2Client; sellables: Sellables } | undefined;
+  let read: (AccountSales & { client: Gw2Client }) | undefined;
+  /** Set while the account or conversions are being read. */
   let reading: Gw2Client | undefined;
+  let stopClock = () => {};
 
   function blocker(): string | undefined {
     const token = options.account()?.token;
@@ -70,6 +94,12 @@ export function initSalesSection(options: { account(): Account | undefined; cach
           missingPermissions(token.permissions, ['tradingpost']).length
             ? 'without `tradingpost`, the delivery box is not checked'
             : '',
+          missingPermissions(token.permissions, ['unlocks']).length
+            ? 'without `unlocks`, only automatically learned recipes are considered'
+            : '',
+          missingPermissions(token.permissions, ['wallet']).length
+            ? 'without `wallet`, Spirit Shards for promotions are not checked'
+            : '',
         ].filter(Boolean)
       : [];
     hint.textContent = blocked ?? (gaps.length ? `Your key is missing some optional permissions: ${gaps.join('; ')}.` : '');
@@ -84,7 +114,8 @@ export function initSalesSection(options: { account(): Account | undefined; cach
 
   /** Plan the sales again from the last read. */
   function render(): void {
-    if (!read) return;
+    // While reading, the output would not yet match the options.
+    if (!read || reading) return;
     const target = parseGold(targetInput.value);
     targetInput.setAttribute('aria-invalid', String(target === null));
     if (target === null) {
@@ -94,10 +125,15 @@ export function initSalesSection(options: { account(): Account | undefined; cach
     }
     const sale = readSaleControls('sales');
     const { sellables } = read;
-    const plan = planSales(sellables.items, { ...sale, ...(target === undefined ? {} : { target }) });
+    const { conversions, notes } = read.conversions.get(readConvertControls('sales'));
+    const plan = planSales(sellables.items, {
+      ...sale,
+      ...(target === undefined ? {} : { target }),
+      ...(conversions ? { conversions } : {}),
+    });
     const markdown = `${renderSales(plan, {
       ...(sellables.delivery ? { delivery: sellables.delivery } : {}),
-      notes: sellables.notes,
+      notes: [...sellables.notes, ...notes],
     })}\n`;
     raw.value = markdown;
     preview.replaceChildren(renderMarkdown(markdown));
@@ -107,7 +143,49 @@ export function initSalesSection(options: { account(): Account | undefined; cach
     setStatus(status, warning, warning ? 'error' : 'info');
   }
 
-  form.addEventListener('change', render);
+  /**
+   * Run a read for `client`, then plan the sales. `current` turns false once the
+   * key is forgotten or replaced, and what the read found is then dropped.
+   */
+  async function whileReading(client: Gw2Client, task: (current: () => boolean) => Promise<void>): Promise<void> {
+    const current = () => reading === client;
+    reading = client;
+    clearOutput();
+    updateControls();
+    stopClock = startClock($('sales-elapsed'));
+    let failed = false;
+    try {
+      await task(current);
+    } catch (err) {
+      failed = true;
+      if (current()) setStatus(status, describeError(err), 'error');
+    }
+    if (current()) {
+      reading = undefined;
+      stopClock();
+      updateControls();
+      if (!failed) render();
+    }
+    void options.cache.flush();
+  }
+
+  /** Read the conversions the boxes ask for; they may be changed while this runs. */
+  async function loadConversions(conversions: ConversionReads, current: () => boolean): Promise<void> {
+    let missing = conversions.missing(readConvertControls('sales'));
+    while (missing.length && current()) {
+      setStatus(status, checkingText(missing));
+      await conversions.load(readConvertControls('sales'));
+      missing = conversions.missing(readConvertControls('sales'));
+    }
+  }
+
+  form.addEventListener('change', () => {
+    if (reading) return;
+    const last = read;
+    if (last && last.conversions.missing(readConvertControls('sales')).length) {
+      void whileReading(last.client, (current) => loadConversions(last.conversions, current));
+    } else render();
+  });
 
   form.addEventListener('submit', (event) => {
     event.preventDefault();
@@ -118,26 +196,15 @@ export function initSalesSection(options: { account(): Account | undefined; cach
       targetInput.focus();
       return;
     }
-    reading = account.client;
     read = undefined;
-    clearOutput();
-    updateControls();
-    setStatus(status, 'Reading your materials, bank, bags and trading post prices...');
-    void (async () => {
-      try {
-        const sellables = await readAccountSellables(account);
-        // The key may have been forgotten or replaced meanwhile.
-        if (reading !== account.client) return;
-        read = { client: account.client, sellables };
-        render();
-      } catch (err) {
-        if (reading === account.client) setStatus(status, describeError(err), 'error');
-      } finally {
-        if (reading === account.client) reading = undefined;
-        updateControls();
-        void options.cache.flush();
-      }
-    })();
+    void whileReading(account.client, async (current) => {
+      setStatus(status, 'Reading your materials, bank, bags and trading post prices...');
+      const found = await readAccountSellables(account);
+      // The key may have been forgotten or replaced meanwhile.
+      if (!current()) return;
+      await loadConversions(found.conversions, current);
+      if (current()) read = { client: account.client, ...found };
+    });
   });
 
   $('sales-copy').addEventListener('click', () => {
@@ -168,6 +235,7 @@ export function initSalesSection(options: { account(): Account | undefined; cach
       if ((read && read.client !== client) || (reading && reading !== client)) {
         read = undefined;
         reading = undefined;
+        stopClock();
         clearOutput();
         setStatus(status, '');
       }

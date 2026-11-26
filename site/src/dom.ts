@@ -72,3 +72,18 @@ export function setupTabs(tabs: HTMLButtonElement[]): (index: number) => void {
   });
   return select;
 }
+
+/** Count the seconds in `node` until the returned function is called. */
+export function startClock(node: HTMLElement): () => void {
+  const started = Date.now();
+  const tick = () => {
+    node.textContent = `Working: ${Math.round((Date.now() - started) / 1000)}s`;
+  };
+  tick();
+  node.hidden = false;
+  const timer = setInterval(tick, 1000);
+  return () => {
+    clearInterval(timer);
+    node.hidden = true;
+  };
+}

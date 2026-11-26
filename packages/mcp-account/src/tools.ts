@@ -20,6 +20,7 @@ import {
   collectHoldings,
   createContext,
   fetchCharacter,
+  readConversions,
   readHoldings,
   readSellables,
   renderPlan,
@@ -27,7 +28,9 @@ import {
   planSales,
   planShortfall,
   salesForPlan,
+  type ConversionData,
   type SaleOptions,
+  type Sellable,
   fmt,
   nameOf,
   renderCharacter,
@@ -48,7 +51,7 @@ export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
   gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
   gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances' },
-  gw2_raise_gold: { required: ['inventories'], optional: ['characters', 'tradingpost', 'wallet'], note: 'characters adds character bags, tradingpost adds coins waiting in the delivery box, wallet works out what a plan is short' },
+  gw2_raise_gold: { required: ['inventories'], optional: ['characters', 'tradingpost', 'wallet', 'unlocks'], note: 'characters adds character bags and crafting ratings, tradingpost adds coins waiting in the delivery box, wallet works out what a plan is short and counts Spirit Shards for promotions, unlocks adds learned recipes to what is considered for crafting' },
   gw2_plan_holdings: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet counts currency balances toward the plan' },
 };
 
@@ -257,11 +260,42 @@ export interface RaiseGoldArgs {
   order?: SaleOptions['order'] | undefined;
   keep?: SaleOptions['keep'] | undefined;
   everything?: boolean | undefined;
+  /** Consider crafting or refining materials before selling. Default true. */
+  craft?: boolean | undefined;
+  /** Consider Mystic Forge promotions before selling. Default false. */
+  promote?: boolean | undefined;
 }
 
-const NOTHING_SOLD =
-  'Nothing has been sold: the API is read-only, so make these sales in game. Bound items, equipped gear and guild storage are never considered, ' +
-  'and nothing is refined, salvaged or converted from currencies first.';
+/** What closes every answer; says which conversions were actually considered. */
+function nothingSold(considered: { craft: boolean; promote: boolean }): string {
+  const ways = [considered.craft ? 'crafting' : '', considered.promote ? 'Mystic Forge promotion' : ''].filter(Boolean).join(' or ');
+  return [
+    'Nothing has been sold: the API is read-only, so do any crafting and make the sales in game. Bound items, equipped gear and guild storage are never considered.',
+    ways
+      ? `Only one step of ${ways} is considered before selling; nothing is salvaged or converted from currencies.`
+      : 'Nothing is crafted, promoted, salvaged or converted from currencies first.',
+    considered.promote ? 'Promotion yields are random: their quantities and gold are averages.' : '',
+  ]
+    .filter(Boolean)
+    .join(' ');
+}
+
+/** Recipes and prices for converting before selling. A failure leaves plain sales, with a note. */
+async function conversionsFor(
+  client: Gw2Client,
+  permissions: readonly Permission[],
+  items: readonly Sellable[],
+  wanted: { craft: boolean; promote: boolean },
+): Promise<{ data?: ConversionData; notes: string[]; considered: { craft: boolean; promote: boolean } }> {
+  const none = { craft: false, promote: false };
+  if (!wanted.craft && !wanted.promote) return { notes: [], considered: none };
+  try {
+    const { notes, ...data } = await readConversions(client, permissions, items, wanted);
+    return { data, notes, considered: wanted };
+  } catch {
+    return { notes: ['recipes or their prices could not be read, so materials are sold as they are'], considered: none };
+  }
+}
 
 /** What the player could sell to raise gold, on its own or for a saved plan. */
 export async function raiseGold(client: Gw2Client, args: RaiseGoldArgs, dir = plansDir()): Promise<string> {
@@ -273,14 +307,21 @@ export async function raiseGold(client: Gw2Client, args: RaiseGoldArgs, dir = pl
     ...(args.keep ? { keep: args.keep } : {}),
     ...(args.everything ? { everything: true } : {}),
   };
+  const wanted = { craft: args.craft ?? true, promote: args.promote ?? false };
   const read = async () => {
     const { items, notes, delivery } = await readSellables(client, perms);
-    return { items, extra: { notes, ...(delivery === undefined ? {} : { delivery }) } };
+    const { data, considered, ...converted } = await conversionsFor(client, perms, items, wanted);
+    return {
+      items,
+      options: { ...options, ...(data ? { conversions: data } : {}) },
+      considered,
+      extra: { notes: [...notes, ...converted.notes], ...(delivery === undefined ? {} : { delivery }) },
+    };
   };
 
   if (args.plan === undefined) {
-    const { items, extra } = await read();
-    return `${renderSales(planSales(items, options), extra)}\n\n${NOTHING_SOLD}`;
+    const sellable = await read();
+    return `${renderSales(planSales(sellable.items, sellable.options), sellable.extra)}\n\n${nothingSold(sellable.considered)}`;
   }
 
   const { plan, notes } = await syncPlan(client, perms, args.plan, dir);
@@ -292,14 +333,14 @@ export async function raiseGold(client: Gw2Client, args: RaiseGoldArgs, dir = pl
       'The wallet covers the gold this plan still needs, so nothing needs selling. Pass `target_gold` to raise an amount anyway.',
     ].join('\n\n');
   }
-  const { items, extra } = await read();
+  const { items, extra, considered, options: sale } = await read();
   const undecided = solvePlan(plan).steps.some((s) => s.undecided);
   return [
     saved,
-    renderPlan(plan, { sections: [], sales: { plan: salesForPlan(plan, items, { ...options, delivery: extra.delivery }), ...extra } }),
+    renderPlan(plan, { sections: [], sales: { plan: salesForPlan(plan, items, { ...sale, delivery: extra.delivery }), ...extra } }),
     `Held back: what you own that this plan uses. Other saved plans are not considered; name their materials in \`keep\`.` +
       (undecided ? ' Recipe choices are still open, and only the assumed routes are protected: settle them before selling.' : ''),
-    NOTHING_SOLD,
+    nothingSold(considered),
   ].join('\n\n');
 }
 
