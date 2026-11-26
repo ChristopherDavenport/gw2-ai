@@ -124,7 +124,8 @@
         <h2 id="plan-heading">Crafting plan</h2>
         <p class="hint">
           Pick something to make and get the steps as markdown for an AI assistant, then paste its changes back. No API
-          key is needed; with one, the plan can count what you already own. The plan, holdings included, is saved in this
+          key is needed; with one that has the
+          inventories permission, tick “Use my own materials” to count what you already own. The plan, holdings included, is saved in this
           browser and in its .json download. Forgetting the key removes the holdings from the saved plan.
         </p>
         <form id="plan-form" novalidate>
@@ -144,13 +145,13 @@
             <button type="button" id="plan-copy" class="primary">Copy markdown</button>
             <button type="button" id="plan-download-md">Download .md</button>
             <button type="button" id="plan-download-json">Download .json</button>
-            <button type="button" id="plan-holdings" hidden>Read my holdings</button>
             <button type="button" id="plan-prices">Refresh prices</button>
           </div>
           <p id="plan-copy-status" class="status" role="status" aria-live="polite"></p>
           <fieldset id="plan-settings" class="plan-settings">
             <legend>Options</legend>
             <div id="plan-setting-list"></div>
+            <p id="plan-holdings-hint" class="hint"></p>
           </fieldset>
           <fieldset id="plan-choices" class="plan-choices" hidden>
             <legend>Recipes and routes</legend>

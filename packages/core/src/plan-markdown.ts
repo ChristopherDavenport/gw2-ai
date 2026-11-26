@@ -1,5 +1,5 @@
 import { pageUrl, type VendorCaps } from '@gw2kit/wiki';
-import { planSettings, solvePlan, type CraftingPlan, type PlanRoute, type PlanSettings, type PlanStep, type SolvedPlan, type StepKey } from '@gw2kit/recipes';
+import { buyPrice, planSettings, solvePlan, type CraftingPlan, type PlanRoute, type PlanSettings, type PlanSource, type PlanStep, type SolvedPlan, type StepKey } from '@gw2kit/recipes';
 import { cell, coins, day, num, text } from './format.js';
 import { needsResearch } from './research.js';
 
@@ -25,11 +25,47 @@ export function quoteExcerpt(excerpt: string, indent = ''): string {
 }
 
 /** On a vendor step the excerpt is for drops and containers, which the player can pick instead. */
+function sourceList(sources: readonly PlanSource[]): string {
+  const line = (s: PlanSource) =>
+    `    - ${text(s.name)}${s.detail ? ` (${text(s.detail)})` : ''}${s.about ? `: ${text(s.about)}` : ''}`;
+  return (
+    [
+      ['Collect on the map', sources.filter((s) => s.kind === 'gathered')],
+      ['From containers and choice chests', sources.filter((s) => s.kind === 'contained')],
+    ] as const
+  )
+    .filter(([, list]) => list.length)
+    .map(([title, list]) => `\n  - ${title}:\n${list.map(line).join('\n')}`)
+    .join('');
+}
+
 function researchText(step: PlanStep): string {
   const r = step.research;
   if (!r || step.note) return '';
+  if (r.method) return `\n  - How: ${text(r.method)} (${cell(r.source)})`;
+  const requires = r.requires?.length ? `\n  - Vendor requirements: ${r.requires.map(text).join(' ')}` : '';
+  // A vendor step's excerpt is only worth showing for the drops and containers in it.
+  if (step.action === 'vendor' && !r.sources) return requires;
   const lead = step.action === 'vendor' ? 'Other ways to get it (choose `earn` to use one), from' : 'From';
-  return `\n  - ${lead} ${cell(r.source)}:\n\n${quoteExcerpt(r.text, '  ')}\n`;
+  const body = r.sources ? sourceList(r.sources) : `\n\n${quoteExcerpt(r.text, '  ')}\n`;
+  return `${requires}\n  - ${lead} ${cell(r.source)}:${body}`;
+}
+
+/** Vendor offers listed per step; the route choices hold all of them. */
+const LISTED_OFFERS = 10;
+
+/** Vendor prices besides the route in use: other vendors, exchanges and their limits. */
+function offerText(step: PlanStep): string {
+  const offers = step.options.flatMap((r) => (r.offer ? [r.offer] : []));
+  if (!offers.length) return '';
+  const lines = offers.slice(0, LISTED_OFFERS).map((o) => {
+    const costs = o.costs.map((c) => (c.kind === 'Currency' && c.id === 1 ? coins(c.amount) : `${num(c.amount)} ${text(c.name)}`));
+    const limits = PERIODS.flatMap(([key, per]) => (o.caps[key] === undefined ? [] : [`limit ${num(o.caps[key])} per ${per}`]));
+    const who = o.vendors.slice(0, 2).map(text).join(' or ');
+    return `    - ${num(o.quantity)} for ${costs.join(' + ')} from ${who}${limits.length ? ` (${limits.join(', ')})` : ''}`;
+  });
+  if (offers.length > LISTED_OFFERS) lines.push(`    - and ${offers.length - LISTED_OFFERS} more`);
+  return `\n  - ${step.action === 'vendor' ? 'Other prices' : 'Also sold by vendors'}:\n${lines.join('\n')}`;
 }
 
 const box = (step: PlanStep) => `- [${step.count === 0 ? 'x' : ' '}]`;
@@ -63,9 +99,14 @@ function capText(step: PlanStep): string {
 }
 
 /** How one route differs from the others, by the inputs only it uses. Plain text. */
-function routeLabel(route: PlanRoute, all: readonly PlanRoute[]): string {
+function routeLabel(route: PlanRoute, all: readonly PlanRoute[], sources: readonly PlanSource[] = []): string {
   if (route.action === 'buy') return `buy on the trading post (${coins(route.unitCost)} each)`;
-  if (route.action === 'earn') return 'earn it some other way';
+  if (route.action === 'earn') {
+    const names = sources.filter((s) => s.kind === 'gathered').map((s) => s.name);
+    if (!names.length) return 'earn it some other way';
+    const chests = sources.some((s) => s.name.includes("Hero's Choice")) ? ", or a Hero's Choice Chest" : '';
+    return `collect it: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ', …' : ''}${chests}`;
+  }
   const others = all.filter((r) => r !== route && r.inputs.length);
   const unique = route.inputs.filter((i) => !others.every((r) => r.inputs.some((o) => o.key === i.key)));
   // A vendor price is shown whole; recipes are told apart by what only they use.
@@ -97,8 +138,9 @@ export function planChoices(plan: CraftingPlan, solved: SolvedPlan = solvePlan(p
     if (!s.route) return [];
     const routes = [s.route, ...s.options].sort((a, b) => a.key.localeCompare(b.key));
     const recipes = routes.filter((r) => r.action === 'craft' || r.action === 'forge');
-    const otherSources = s.route.action === 'vendor' && s.research !== undefined;
-    if (recipes.length < 2 && !otherSources && plan.choices[s.key] === undefined) return [];
+    const otherSources = s.route.action === 'vendor' && s.research?.sources !== undefined;
+    const alsoSold = s.route.action !== 'vendor' && routes.some((r) => r.action === 'vendor');
+    if (recipes.length < 2 && !otherSources && !alsoSold && plan.choices[s.key] === undefined) return [];
     return [
       {
         key: s.key,
@@ -108,7 +150,7 @@ export function planChoices(plan: CraftingPlan, solved: SolvedPlan = solvePlan(p
         // "Earn" only means something where there are drops or containers to use.
         options: routes
           .filter((r) => r.action !== 'earn' || s.research !== undefined || r.key === s.route!.key)
-          .map((r) => ({ value: r.key, label: routeLabel(r, routes) })),
+          .map((r) => ({ value: r.key, label: routeLabel(r, routes, s.research?.sources) })),
       },
     ];
   });
@@ -145,10 +187,10 @@ function acquire(steps: PlanStep[]): string[] {
     .map((s) => {
       const how = needsResearch(s)
         ? ` — **needs research**${s.research ? '' : `: ${pageUrl(s.name)}`}`
-        : s.options.some((o) => o.action === 'buy') && !s.note
+        : s.options.some((o) => o.action === 'buy') && !s.note && !s.research?.method
           ? ' — you chose to earn it'
           : '';
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)}${s.bound ? ' [bound]' : ''}${how}${noteText(s)}${researchText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${held(s)}${s.bound ? ' [bound]' : ''}${how}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -158,10 +200,12 @@ function buy(steps: PlanStep[], plan: CraftingPlan): string[] {
     .sort((a, b) => b.coin - a.coin)
     .map((s) => {
       const item = plan.data.items[s.id];
-      const order = item?.buy ? `; by buy order ≈ ${coins(item.buy * s.count)}` : '';
+      const ordering = planSettings(plan).useBuyOrders;
+      const other_ = ordering ? item?.sell : item?.buy;
+      const order = other_ ? `; ${ordering ? 'buying at once' : 'by buy order'} ≈ ${coins(other_ * s.count)}` : '';
       const make = s.options.find((o) => o.action === 'craft' || o.action === 'forge');
       const other = make && !make.priced ? `\n  - Can also be made, at a cost gold can't compare: ${routeLabel(make, [make])}` : '';
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)}: **${coins(s.coin)}** (${coins(item?.sell ?? 0)} each${order})${other}${noteText(s)}${researchText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -172,7 +216,7 @@ function vendor(steps: PlanStep[]): string[] {
       const offer = s.route!.offer!;
       const who = offer.vendors.slice(0, 2).map(text).join(' or ');
       const caps = capText(s);
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${noteText(s)}${researchText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -186,7 +230,7 @@ function makeLine(s: PlanStep): string {
         ? `, about ${num(s.times)} forges at an average yield of ${s.route!.output} (random, so keep spares)`
         : ''
       : ` (${recipe.disciplines.join('/')} ${recipe.min_rating})`;
-  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${inputText(s)}${noteText(s)}`;
+  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${inputText(s)}${noteText(s)}${offerText(s)}`;
 }
 
 /** Crafts and forges, inputs before outputs, grouped by the part of the goal. */
@@ -212,7 +256,7 @@ const UPDATING = `To change this plan, reply with a JSON update. Steps are named
   "done": ["<step>"],
   "undone": ["<step>"],
   "notes": { "<step>": { "text": "how to get it", "source": "<url>", "gate": "1 per day" } },
-  "settings": { "useOwnMaterials": true, "dailyCrafts": true, "forgePromotions": false, "deductOwnedValue": true }
+  "settings": { "useOwnMaterials": true, "dailyCrafts": true, "forgePromotions": false, "deductOwnedValue": true, "useBuyOrders": false }
 }
 \`\`\``;
 
@@ -222,17 +266,32 @@ export const PLAN_SETTING_LABELS: Readonly<Record<keyof PlanSettings, string>> =
   dailyCrafts: 'Craft daily cooldown items',
   forgePromotions: 'Use Mystic Forge promotions',
   deductOwnedValue: 'Subtract my materials from the value',
+  useBuyOrders: 'Price by buy orders',
 };
 
 /** The gold headline: what is left to pay, or the whole value with owned materials counted in. */
 function valueText(plan: CraftingPlan, solved: SolvedPlan, gold: number, scoped: boolean): string {
   const settings = planSettings(plan);
-  const priced = `at trading post sell listings of ${day(plan.data.fetchedAt)}`;
+  const priced = `at ${settings.useBuyOrders ? 'highest buy orders' : 'trading post sell listings'} of ${day(plan.data.fetchedAt)}`;
   const owned = scoped ? 0 : Math.max(0, solved.fullCoin - solved.coin);
   if (!owned) return `Gold still to spend: **${coins(gold)}** ${priced}.`;
   return settings.deductOwnedValue
     ? `Gold still to spend: **${coins(gold)}** ${priced}, after your materials (worth ${coins(owned)} here).`
     : `Total value: **${coins(solved.fullCoin)}** ${priced}, including ${coins(owned)} of your own materials; ${coins(gold)} left to spend.`;
+}
+
+/** What the open purchases would cost the other way: buy orders save gold and take time. */
+function orderNote(plan: CraftingPlan, open: PlanStep[]): string {
+  const difference = open
+    .filter((s) => s.action === 'buy' && s.kind === 'Item')
+    .reduce((sum, s) => {
+      const item = plan.data.items[s.id];
+      return sum + (item?.sell && item.buy ? (item.sell - item.buy) * s.count : 0);
+    }, 0);
+  if (difference <= 0) return '';
+  return planSettings(plan).useBuyOrders
+    ? `Orders can take a while to fill; buying at once would cost ${coins(difference)} more. `
+    : `Placing buy orders instead would save about ${coins(difference)}. `;
 }
 
 /** Markdown for a plan: what to decide, what takes time, what to get and what to make. */
@@ -262,7 +321,7 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
   const out = [
     `# Crafting plan: ${amount(plan.goal.quantity, plan.goal.name)}`,
     `${valueText(plan, solved, gold, scope !== '')} ` +
-      `${num(open.length)} steps open, ${num(research.length)} needing research. ` +
+      `${orderNote(plan, open)}${num(open.length)} steps open, ${num(research.length)} needing research. ` +
       (!planSettings(plan).useOwnMaterials
         ? 'Your own materials are not used.'
         : holdings.fetchedAt
@@ -270,7 +329,12 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
           : 'Account holdings are not counted.') +
       scope,
     `Settings: ${Object.entries(PLAN_SETTING_LABELS)
-      .map(([key, label]) => `${label.toLowerCase()}: ${planSettings(plan)[key as keyof PlanSettings] ? 'yes' : 'no'}`)
+      .map(([key, label]) => {
+        // Nothing of the player's is used until their holdings have been read.
+        const needsHoldings = key === 'useOwnMaterials' || key === 'deductOwnedValue';
+        const on = planSettings(plan)[key as keyof PlanSettings] && (!needsHoldings || holdings.fetchedAt !== undefined);
+        return `${label.toLowerCase()}: ${on ? 'yes' : 'no'}`;
+      })
       .join(' · ')}.`,
     ...warnings,
   ];

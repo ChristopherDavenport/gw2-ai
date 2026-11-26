@@ -43,7 +43,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   const status = $('plan-status');
   const elapsed = $('plan-elapsed');
   const output = $('plan-output');
-  const holdingsBtn = $<HTMLButtonElement>('plan-holdings');
+  const holdingsHint = $('plan-holdings-hint');
   const pricesBtn = $<HTMLButtonElement>('plan-prices');
   const raw = $<HTMLTextAreaElement>('plan-raw');
   const preview = $('plan-panel-preview');
@@ -65,9 +65,14 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     const input = el('input');
     input.type = 'checkbox';
     input.id = `plan-setting-${name}`;
-    input.addEventListener('change', () => change({ settings: { [name]: input.checked } }, label, () => (input.checked = !input.checked)));
-    $('plan-setting-list').append(el('label', {}, input, ` ${label}`));
-    return { name, input };
+    input.addEventListener('change', () => {
+      // Using your own materials means reading them first.
+      if (name === 'useOwnMaterials' && input.checked) return useHoldings();
+      change({ settings: { [name]: input.checked } }, label, () => (input.checked = !input.checked));
+    });
+    const row = el('label', {}, input, ` ${label}`);
+    $('plan-setting-list').append(row);
+    return { name, input, row };
   });
 
   let current: { plan: CraftingPlan; markdown: string } | undefined;
@@ -79,9 +84,28 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     for (const b of [buildBtn, loadBtn, pricesBtn, applyBtn]) b.disabled = busy;
     choiceBox.disabled = busy;
     settingsBox.disabled = busy;
-    const account = options.account();
-    holdingsBtn.hidden = !account;
-    holdingsBtn.disabled = busy;
+    showSettings();
+  }
+
+  /** The key permission holdings need that the saved key lacks; undefined when it can read them. */
+  function holdingsBlocker(): string | undefined {
+    const token = options.account()?.token;
+    if (!token) return 'Save an API key with the inventories permission to use your own materials.';
+    const missing = missingPermissions(token.permissions, ['inventories']);
+    return missing.length ? `Your key needs the ${missing.join(', ')} permission to use your own materials.` : undefined;
+  }
+
+  function showSettings(): void {
+    if (!current) return;
+    const settings = planSettings(current.plan);
+    const blocker = holdingsBlocker();
+    const using = !blocker && settings.useOwnMaterials && current.plan.holdings.fetchedAt !== undefined;
+    for (const { name, input, row } of settingInputs) {
+      input.checked = name === 'useOwnMaterials' ? using : settings[name];
+      if (name === 'useOwnMaterials') row.hidden = blocker !== undefined;
+      if (name === 'deductOwnedValue') row.hidden = !using;
+    }
+    holdingsHint.textContent = blocker ?? (using ? 'Untick and tick again to re-read your holdings.' : '');
   }
 
   /** Show `plan` and store it. Throws, changing nothing, if it can't be rendered. */
@@ -97,8 +121,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     preview.replaceChildren(renderMarkdown(markdown));
     setStatus(copyStatus, '');
     output.hidden = false;
-    const settings = planSettings(plan);
-    for (const { name, input } of settingInputs) input.checked = settings[name];
+    showSettings();
     showChoices(planChoices(plan));
   }
 
@@ -244,7 +267,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     if (!replaceOk()) return;
     void run(status, 'Looking up the item...', async () => {
       const id = await resolveItem(input);
-      setStatus(status, 'Fetching recipes, prices and vendors. A legendary takes about half a minute...');
+      setStatus(status, 'Fetching recipes, prices and vendors. A legendary takes one to two minutes...');
       const plan = await createPlan(client, id, quantity, { wiki, vendorCurrency: DEFAULT_VENDOR_CURRENCY });
       setStatus(updateStatus, '');
       updateErrors.replaceChildren();
@@ -302,21 +325,25 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   // ---- Holdings and prices ----
 
-  holdingsBtn.addEventListener('click', () => {
+  function useHoldings(): void {
     const account = options.account();
-    if (!account || !current) return;
+    if (!account || !current || busy) return showSettings();
     const { plan } = current;
     const epoch = holdingsEpoch;
     void run(copyStatus, 'Reading your bank, bags, materials and wallet...', async () => {
-      const token = account.token ?? (await account.client.get('/v2/tokeninfo'));
-      const missing = missingPermissions(token.permissions, ['inventories']);
-      if (missing.length) throw new Error(`The key needs the ${missing.join(', ')} permission to read holdings.`);
-      const { holdings, notes } = await readHoldings(account.client, token.permissions);
-      if (epoch !== holdingsEpoch) return ['The key was forgotten, so the holdings were discarded.', 'info'];
-      await commit(withHoldings(plan, holdings), epoch);
-      return notes.length ? [`Holdings read, with gaps: ${notes.join('; ')}.`, 'info'] : ['Holdings read.', 'ok'];
+      try {
+        const token = account.token ?? (await account.client.get('/v2/tokeninfo'));
+        const { holdings, notes } = await readHoldings(account.client, token.permissions);
+        if (epoch !== holdingsEpoch) return ['The key was forgotten, so the holdings were discarded.', 'info'];
+        const on = updatePlan(withHoldings(plan, holdings), { settings: { useOwnMaterials: true } }).plan;
+        await commit(on, epoch);
+        return notes.length ? [`Using your materials, with gaps: ${notes.join('; ')}.`, 'info'] : ['Using your materials.', 'ok'];
+      } catch (err) {
+        showSettings();
+        throw err;
+      }
     });
-  });
+  }
 
   pricesBtn.addEventListener('click', () => {
     if (!current) return;

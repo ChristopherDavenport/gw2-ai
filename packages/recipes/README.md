@@ -52,12 +52,15 @@ const { steps, coin } = solvePlan(plan);
 steps.filter((s) => s.undecided);                                   // recipe choices gold can't compare
 parsePlan(JSON.stringify(plan));                                    // read one back; throws if it isn't a plan
 ```
-`settings` takes four booleans (defaults in `DEFAULT_PLAN_SETTINGS`):
+`settings` takes five booleans (defaults in `DEFAULT_PLAN_SETTINGS`):
 
 - `useOwnMaterials` (true): take owned items off what the plan calls for. Wallet balances always count.
 - `dailyCrafts` (true): craft the five once-a-day items. Off, they are not scheduled, so a tradeable product such as Deldrimor Steel Ingot is bought instead.
 - `forgePromotions` (false): use Mystic Forge material promotions where their gold cost beats buying. Spirit Shard stones count as no gold, and yields are wiki averages. Needs a plan built with `createPlan`, which fetches them.
 - `deductOwnedValue` (true): state value net of owned materials. `solvePlan` always returns both `coin` and `fullCoin`.
+- `useBuyOrders` (false): price purchases at the highest buy order.
+
+`createPlan` also looks up vendors for bound forge results and the biggest purchases (`addVendorOffers`), so Wizard's Vault and weekly offers show up as routes to choose.
 
 
 `refreshPrices(client, plan)` reads trading post prices again without refetching the graph. [`@gw2-ai/core`](https://www.npmjs.com/package/@gw2-ai/core) renders a plan as markdown.

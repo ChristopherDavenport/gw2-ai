@@ -134,6 +134,18 @@ describe('items only an alternative vendor offer charges', () => {
 });
 
 describe('plan settings', () => {
+  it('prices purchases at buy orders when asked, and offers vendors without defaulting to them', () => {
+    const d = data();
+    d.items[6] = { name: 'Ore', sell: 5, buy: 3 };
+    d.vendors[6] = { url: 'https://wiki.guildwars2.com/wiki/Ore', offers: [{ quantity: 1, costs: [{ kind: 'Currency', id: 2, name: 'Karma', amount: 9 }], vendors: ['B'], caps: { weekly: 5 } }] };
+    const plan = planFromData(d);
+    const instant = solvePlan(plan);
+    expect(step(instant, 'Ore')).toMatchObject({ action: 'buy', coin: 100 });
+    expect(step(instant, 'Ore')!.options.map((o) => o.action)).toContain('vendor');
+    expect(step(solvePlan(updatePlan(plan, { settings: { useBuyOrders: true } }).plan), 'Ore')).toMatchObject({ coin: 60 });
+    expect(step(solvePlan(updatePlan(plan, { choose: { Ore: 'karma' } }).plan), 'Ore')).toMatchObject({ action: 'vendor', coin: 0 });
+  });
+
   const solve = (plan: ReturnType<typeof desert>, settings: Record<string, boolean>) => {
     const result = updatePlan(plan, { settings });
     expect(result.errors).toEqual([]);
