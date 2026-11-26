@@ -350,6 +350,9 @@ export function renderSales(sales: SalePlan, options: { heading?: string; delive
   return [
     `## ${cell(options.heading ?? 'Raise gold')}`,
     head,
+    shown.some((l) => l.convert?.kind === 'promote')
+      ? 'Promotion yields are random: the amounts and gold for those lines, and the totals, are averages.'
+      : '',
     first ? `Some steps need purchases first, ${coins(first)} in all (already taken off what they raise).` : '',
     options.delivery ? `Pick up first: ${coins(options.delivery)} is waiting in the trading post delivery box.` : '',
     sales.method === 'list' ? 'Listed sales pay only when a buyer takes them, which can be days.' : '',
