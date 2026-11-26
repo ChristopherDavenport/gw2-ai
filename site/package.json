@@ -12,6 +12,8 @@
   },
   "dependencies": {
     "@gw2kit/client": "workspace:*",
+    "@gw2kit/recipes": "workspace:*",
+    "@gw2kit/wiki": "workspace:*",
     "@gw2-ai/core": "workspace:*",
     "dompurify": "3.4.18",
     "marked": "18.2.0"

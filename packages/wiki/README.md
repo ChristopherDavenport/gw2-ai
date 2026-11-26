@@ -1,6 +1,6 @@
 # @gw2kit/wiki
 
-A client for the [official Guild Wars 2 wiki](https://wiki.guildwars2.com) that turns its structured (Semantic MediaWiki) data into typed records: Mystic Forge recipes, NPC vendor offers, and item pages by game id. The official API has none of these. It also does search, plain-text page reads and raw `ask` queries. Works in Node 22+ and browsers.
+A client for the [official Guild Wars 2 wiki](https://wiki.guildwars2.com) that turns its structured (Semantic MediaWiki) data into typed records: Mystic Forge recipes, NPC vendor offers, and item pages by game id. The official API has none of these. It also does search, plain-text page and section reads and raw `ask` queries. Works in Node 22+ and browsers.
 
 ```sh
 npm install @gw2kit/wiki
@@ -26,6 +26,7 @@ const offers = await wiki.vendorOffers("Philosopher's Stone");
 
 const hits = await wiki.search('Twilight');
 const page = await wiki.page('Twilight', { intro: true });
+const how = await wiki.section('Mystic Coin', 'Acquisition');   // tables and lists as text lines, which page() drops; `omit` skips subsections
 const rows = await wiki.ask('[[Has game id::19721]]|?Has context');
 ```
 

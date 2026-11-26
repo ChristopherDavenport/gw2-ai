@@ -17,3 +17,23 @@ export {
   type TreeVendor,
   type TreeVendorOffer,
 } from './tree.js';
+export {
+  createPlan,
+  parsePlan,
+  planFromData,
+  refreshPrices,
+  solvePlan,
+  stepKey,
+  updatePlan,
+  withHoldings,
+  type CraftingPlan,
+  type PlanHoldings,
+  type PlanInput,
+  type PlanNote,
+  type PlanResearch,
+  type PlanRoute,
+  type PlanStep,
+  type PlanUpdate,
+  type SolvedPlan,
+  type StepKey,
+} from './plan.js';

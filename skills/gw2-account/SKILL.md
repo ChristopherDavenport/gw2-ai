@@ -29,6 +29,7 @@ If neither is available, say so and offer both options: create a key at https://
    | Easy achievements to finish | `gw2_account_report` | `achievements` |
    | Skins/dyes/minis completion | `gw2_account_report` | `unlocks` |
    | Crafting something from what I have | `gw2_shopping_list` | `{item_id, quantity}` |
+   | Progress on a saved crafting plan (a legendary) | `gw2_plan_holdings` | `{plan}`; plans are listed by `gw2_plan_show` on gw2-data (see the gw2-goals skill) |
    | Anything else (masteries, homestead, guild stash, PvP stats) | `gw2_account_get` | `{path: "/v2/account/masteries"}` etc. See the gw2-api skill for paths |
 
    Request only the sections you need: a full report on a large account is about 12k tokens. Pass `valuation: false` when the question isn't about value (fewer API calls, faster). Answer totals from the **At a glance** block rather than adding up rows. Leave `detail` at `summary` unless the user wants every row in tables; summary still names every held item, just less valuable ones on compact `Name ×count` lines.

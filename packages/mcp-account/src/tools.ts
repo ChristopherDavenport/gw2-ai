@@ -9,7 +9,7 @@ import {
   type Permission,
   type TokenInfo,
 } from '@gw2kit/client';
-import { buildRecipeTree } from '@gw2kit/recipes';
+import { buildRecipeTree, withHoldings } from '@gw2kit/recipes';
 import type { WikiClient } from '@gw2kit/wiki';
 import {
   ACCOUNT,
@@ -20,12 +20,15 @@ import {
   collectHoldings,
   createContext,
   fetchCharacter,
+  readHoldings,
+  renderPlan,
   fmt,
   nameOf,
   renderCharacter,
   type CharacterOptions,
   renderRecipeTree,
 } from '@gw2-ai/core';
+import { loadPlan, plansDir, savePlan } from '@gw2-ai/core/plans';
 import { accountPath, checkParams, compactJson } from './paths.js';
 
 const { num, table, text } = fmt;
@@ -39,6 +42,7 @@ export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
   gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
   gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances' },
+  gw2_plan_holdings: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet counts currency balances toward the plan' },
 };
 
 export class MissingPermissionError extends Error {}
@@ -191,16 +195,9 @@ export async function character(client: Gw2Client, name: string, templates: Char
 
 export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: number, quantity: number): Promise<string> {
   const perms = await requirePermissions(client, 'gw2_shopping_list');
-  const ctx = createContext(client, { valuation: false });
-  const [held, mats, walletRows] = await Promise.all([
-    collectHoldings(ctx),
-    client.get('/v2/account/materials', ACCOUNT).catch(() => []),
-    perms.includes('wallet') ? client.get('/v2/account/wallet', ACCOUNT).catch(() => undefined) : undefined,
-  ]);
-  const wallet = walletRows ? new Map(walletRows.map((w) => [w.id, w.value])) : undefined;
-  const have = new Map<number, number>();
-  for (const h of held.holdings.values()) have.set(h.id, (have.get(h.id) ?? 0) + h.count);
-  for (const m of mats) if (m.count > 0) have.set(m.id, (have.get(m.id) ?? 0) + m.count);
+  const { holdings, notes: unread, walletRead } = await readHoldings(client, perms);
+  const wallet = walletRead ? new Map(Object.entries(holdings.wallet).map(([id, value]) => [Number(id), value])) : undefined;
+  const have = new Map(Object.entries(holdings.items).map(([id, count]) => [Number(id), count]));
 
   const tree = await buildRecipeTree(client, itemId, quantity, { have, wiki, vendorCurrency: DEFAULT_VENDOR_CURRENCY });
   const md = renderRecipeTree(tree, {
@@ -208,12 +205,32 @@ export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: 
     raw: false,
     ...(wallet ? { wallet } : {}),
   });
-  const notes = held.notes.length ? ` Notes: ${held.notes.join('; ')}.` : '';
+  // The sentence about the wallet below already says when it wasn't read.
+  const rest = unread.filter((n) => !n.startsWith('wallet '));
+  const notes = rest.length ? ` Notes: ${rest.join('; ')}.` : '';
   return (
     md +
     `\nHoldings counted: bank, shared slots, character bags, material storage (${num(have.size)} distinct items). ` +
     `Equipped gear, the delivery box and guild storage are not subtracted. ${wallet ? 'Wallet balances are compared with the vendor currencies needed.' : 'Wallet balances are not shown (the key lacks `wallet`).'}${notes} Costs use current TP sell listings.\n`
   );
+}
+
+// ---------------------------------------------------------------- crafting plan
+
+/** Write what the account holds into a saved plan. */
+export async function planHoldings(client: Gw2Client, name: string, dir = plansDir()): Promise<string> {
+  const perms = await requirePermissions(client, 'gw2_plan_holdings');
+  await loadPlan(name, dir); // fail on a bad name before reading the account
+  const { holdings, notes } = await readHoldings(client, perms);
+  // Loaded again: the plan may have been updated while the account was read.
+  const plan = withHoldings(await loadPlan(name, dir), holdings);
+  await savePlan(name, plan, dir);
+  return [
+    `Holdings saved to plan \`${name}\`: bank, shared slots, character bags, material storage and wallet. ` +
+      `Equipped gear, the delivery box and guild storage are not counted.${notes.length ? ` Notes: ${notes.join('; ')}.` : ''}`,
+    renderPlan(plan, { sections: ['decisions', 'covered'] }),
+    `For the remaining steps, use gw2_plan_show {plan: "${name}"} on gw2-data.`,
+  ].join('\n\n');
 }
 
 // ---------------------------------------------------------------- escape hatch

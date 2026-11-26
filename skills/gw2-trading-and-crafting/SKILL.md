@@ -60,6 +60,7 @@ Example: list at 2g (20,000c): listing fee 1,000c, exchange fee 2,000c, you rece
 3. Compare total ingredient cost with buying the output (`sells` of the output). If the player would sell the result, compare with `0.85 *` its price instead.
 4. Note blockers: the recipe may need to be learned (`LearnedFromItem` flag) and a discipline at `min_rating`; check the account's characters (gw2-account skill). Some intermediates are time-gated by daily crafting (for example the ascended refinements listed in `/v2/dailycrafting`). Account-bound ingredients have no price: say how to get them, don't count them as free.
 5. Items the player already owns aren't free either: their cost is what they would sell for. When the user asks "with what I have", use `gw2_shopping_list {item_id, quantity}`, which counts account holdings and prices only the remainder.
+6. For a legendary or another goal worked on over days or weeks, switch to a saved crafting plan (`gw2_plan_create`, the gw2-goals skill) instead of repeating the tree.
 
 **"What can I make with X / what uses X?"** `gw2_recipes_using {item_id}`. To find a profitable use, price the outputs and compare with the inputs, as above.
 

@@ -113,18 +113,75 @@
         </div>
         <div id="panel-raw" role="tabpanel" aria-labelledby="tab-raw">
           <label for="raw" class="visually-hidden">Report markdown</label>
-          <textarea id="raw" readonly spellcheck="false"></textarea>
+          <textarea id="raw" class="markdown-source" readonly spellcheck="false"></textarea>
         </div>
         <div id="panel-preview" role="tabpanel" aria-labelledby="tab-preview" class="preview" tabindex="0" hidden></div>
         <h3>Copy one section</h3>
         <ul id="section-copy" class="section-copy"></ul>
+      </section>
+
+      <section class="card" aria-labelledby="plan-heading">
+        <h2 id="plan-heading">Crafting plan</h2>
+        <p class="hint">
+          Pick something to make and get the steps as markdown for an AI assistant, then paste its changes back. No API
+          key is needed; with one, the plan can count what you already own. The plan, holdings included, is saved in this
+          browser and in its .json download. Forgetting the key removes the holdings from the saved plan.
+        </p>
+        <form id="plan-form" novalidate>
+          <div class="row">
+            <input id="plan-goal" type="text" autocomplete="off" spellcheck="false" aria-label="Item name or id" placeholder="Exact item name or id, e.g. Exordium" />
+            <input id="plan-quantity" type="number" min="1" max="10000" step="1" value="1" aria-label="Quantity" />
+            <button type="submit" id="plan-build" class="primary">Build plan</button>
+            <button type="button" id="plan-load">Load .json</button>
+            <input id="plan-file" type="file" accept=".json,application/json" hidden />
+          </div>
+        </form>
+        <p id="plan-status" class="status" role="status" aria-live="polite"></p>
+        <p id="plan-elapsed" class="hint" aria-hidden="true" hidden></p>
+
+        <div id="plan-output" hidden>
+          <div class="toolbar">
+            <button type="button" id="plan-copy" class="primary">Copy markdown</button>
+            <button type="button" id="plan-download-md">Download .md</button>
+            <button type="button" id="plan-download-json">Download .json</button>
+            <button type="button" id="plan-holdings" hidden>Read my holdings</button>
+            <button type="button" id="plan-prices">Refresh prices</button>
+          </div>
+          <p id="plan-copy-status" class="status" role="status" aria-live="polite"></p>
+          <fieldset id="plan-choices" class="plan-choices" hidden>
+            <legend>Recipes and routes</legend>
+            <div id="plan-choice-list"></div>
+          </fieldset>
+          <div class="tabs" role="tablist" aria-label="Plan view">
+            <button type="button" role="tab" id="plan-tab-raw" aria-controls="plan-panel-raw" aria-selected="true">Markdown</button>
+            <button type="button" role="tab" id="plan-tab-preview" aria-controls="plan-panel-preview" aria-selected="false" tabindex="-1">Preview</button>
+          </div>
+          <div id="plan-panel-raw" role="tabpanel" aria-labelledby="plan-tab-raw">
+            <label for="plan-raw" class="visually-hidden">Plan markdown</label>
+            <textarea id="plan-raw" class="markdown-source" readonly spellcheck="false"></textarea>
+          </div>
+          <div id="plan-panel-preview" role="tabpanel" aria-labelledby="plan-tab-preview" class="preview" tabindex="0" hidden></div>
+
+          <h3><label for="plan-update">Apply update</label></h3>
+          <form id="plan-update-form" novalidate>
+            <p class="hint" id="plan-update-hint">
+              Paste the assistant's reply, or just its JSON update. The format is at the end of the plan.
+            </p>
+            <textarea id="plan-update" class="update-input" rows="6" spellcheck="false" aria-describedby="plan-update-hint"></textarea>
+            <button type="submit" id="plan-apply">Apply update</button>
+          </form>
+          <p id="plan-update-status" class="status" role="status" aria-live="polite"></p>
+          <ul id="plan-update-errors" class="update-errors"></ul>
+        </div>
       </section>
     </main>
 
     <footer class="wrap footer">
       <p>
         Not affiliated with ArenaNet. Data comes from the official
-        <a href="https://wiki.guildwars2.com/wiki/API:Main" target="_blank" rel="noopener noreferrer">Guild Wars 2 API</a>.
+        <a href="https://wiki.guildwars2.com/wiki/API:Main" target="_blank" rel="noopener noreferrer">Guild Wars 2 API</a>
+        and, for crafting plans, the
+        <a href="https://wiki.guildwars2.com" target="_blank" rel="noopener noreferrer">Guild Wars 2 wiki</a>.
       </p>
     </footer>
   </body>
