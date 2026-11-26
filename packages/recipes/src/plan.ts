@@ -180,11 +180,16 @@ export interface SolvedPlan {
 
 const COIN_KEY = 'c1';
 /**
- * The items /v2/dailycrafting tracks: Charged Quartz Crystal, Spool of Silk
- * Weaving Thread, Lump of Mithrillium, Glob of Elder Spirit Residue and Spool
- * of Thick Elonian Cord. One a day, by crafting or from a vendor.
+ * Items that can be had once a day: the five /v2/dailycrafting tracks (Charged
+ * Quartz Crystal, Spool of Silk Weaving Thread, Lump of Mithrillium, Glob of
+ * Elder Spirit Residue, Spool of Thick Elonian Cord), then those the wiki's
+ * Category:Time gated recipes adds (read 2026-11-26): Clay Pot, Grow Lamp,
+ * Heat Stone, both Plates of Plant Food, Vial of Maize Balm, the four Dragon
+ * Hatchling Doll parts and Gossamer Stuffing.
  */
-const DAILY_ITEMS: ReadonlySet<number> = new Set([43772, 46740, 46742, 46744, 46745]);
+export const DAILY_ITEMS: ReadonlySet<number> = new Set([
+  43772, 46740, 46742, 46744, 46745, 66913, 66993, 67015, 66917, 66923, 67377, 79795, 79726, 79817, 79790, 79763,
+]);
 /** Philosopher's Stone and Mystic Crystal: paid in Spirit Shards, which have no gold price. */
 const SPIRIT_SHARD_ITEMS: ReadonlySet<StepKey> = new Set(['i20796', 'i20799']);
 

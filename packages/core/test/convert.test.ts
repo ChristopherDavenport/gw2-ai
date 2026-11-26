@@ -34,6 +34,13 @@ describe('planConversions', () => {
     expect(planConversions(new Map([[1, 20]]), { recipes: [recipe], market: dear }, { minGain: 0 })).toEqual([]);
   });
 
+  it('crafts a once-a-day recipe once', () => {
+    // 79790 is Dragon Hatchling Doll Hide.
+    const prices = market({ 79790: { name: 'Doll Hide', buy: 400, sell: 440 } });
+    const [c] = planConversions(new Map([[1, 200]]), { recipes: [{ ...ingot, output: 79790 }], market: prices }, { minGain: 0 });
+    expect(c!.crafts).toBe(1);
+  });
+
   it('does not use the same materials twice', () => {
     const other = { ...ingot, output: 3 };
     const prices = market({ 3: { name: 'Plate', buy: 300, sell: 330 } });
