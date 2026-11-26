@@ -210,7 +210,7 @@ function gates(steps: PlanStep[]): string[] {
 }
 
 /** Things to earn: currencies, drops and rewards. Unknown ones are flagged. */
-function acquire(steps: PlanStep[]): string[] {
+function acquire(steps: PlanStep[], averaged: ReadonlySet<StepKey>): string[] {
   return steps
     .filter((s) => s.action === 'earn')
     .sort((a, b) => Number(a.kind !== 'Item') - Number(b.kind !== 'Item') || a.name.localeCompare(b.name))
@@ -220,11 +220,11 @@ function acquire(steps: PlanStep[]): string[] {
         : s.options.some((o) => o.action === 'buy') && !s.note && !s.research?.method
           ? ' — you chose to earn it'
           : '';
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)}${s.bound ? ' [bound]' : ''}${how}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}${s.bound ? ' [bound]' : ''}${how}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
-function buy(steps: PlanStep[], plan: CraftingPlan): string[] {
+function buy(steps: PlanStep[], plan: CraftingPlan, averaged: ReadonlySet<StepKey>): string[] {
   return steps
     .filter((s) => s.action === 'buy')
     .sort((a, b) => b.coin - a.coin)
@@ -235,20 +235,45 @@ function buy(steps: PlanStep[], plan: CraftingPlan): string[] {
       const order = other_ ? `; ${ordering ? 'buying at once' : 'by buy order'} ≈ ${coins(other_ * s.count)}` : '';
       const make = s.options.find((o) => o.action === 'craft' || o.action === 'forge');
       const other = make && !make.priced ? `\n  - Can also be made, at a cost gold can't compare: ${routeLabel(make, [make])}` : '';
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
-function vendor(steps: PlanStep[]): string[] {
+function vendor(steps: PlanStep[], averaged: ReadonlySet<StepKey>): string[] {
   return steps
     .filter((s) => s.action === 'vendor')
     .map((s) => {
       const offer = s.route!.offer!;
       const who = offer.vendors.slice(0, NAMED_VENDORS).map(text).join(' or ');
       const caps = capText(s);
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${pickedText(s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${pickedText(s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
+
+/** Whether a step's yield is a matter of luck, so its quantities are averages. */
+const isAveraged = (s: PlanStep): boolean =>
+  s.count > 0 && s.route !== undefined && (s.route.pool !== undefined || s.route.promotion === true || (s.action === 'forge' && s.route.output < 1));
+
+/** Everything an averaged step takes, directly or further down: those quantities move with luck. */
+function averagedInputs(steps: readonly PlanStep[]): Set<StepKey> {
+  const out = new Set<StepKey>();
+  // Consumers come before what they consume, so one pass follows the chain.
+  for (const s of steps) if (isAveraged(s) || out.has(s.key)) for (const i of s.inputs) out.add(i.key);
+  return out;
+}
+
+/** The warning that goes above the totals. */
+function averageText(steps: readonly PlanStep[]): string {
+  const random = steps.filter(isAveraged);
+  if (!random.length) return '';
+  const names = random.map((s) => `${amount(s.count, s.name)} (about ${num(s.times)} forges)`).join(', ');
+  return (
+    `**Averages, not guarantees:** ${names} depend on random Mystic Forge yields. Gold, material and currency totals, ` +
+    'including what your wallet covers, assume average luck; you may need more or less. Lines marked (average) move with it.'
+  );
+}
+
+const averageMark = (averaged: ReadonlySet<StepKey>, s: PlanStep) => (averaged.has(s.key) ? ' (average)' : '');
 
 function makeLine(s: PlanStep): string {
   const verb = s.action === 'forge' ? 'Forge' : 'Craft';
@@ -466,19 +491,27 @@ export function renderPlan(whole: CraftingPlan, options: RenderPlanOptions = {})
         return `${label.toLowerCase()}: ${on ? 'yes' : 'no'}`;
       })
       .join(' · ')}.`,
+    ...(averageText(open) ? [averageText(open)] : []),
     ...warnings,
   ];
 
   const sections: Record<PlanSectionId, [string, () => string[]]> = {
-    goals: ['One at a time, in priority order', () => (plan.goals.length > 1 && !options.component ? goalProgress(plan, solved) : [])],
+    goals: [
+      'One at a time, in priority order',
+      () => {
+        if (plan.goals.length < 2 || options.component) return [];
+        const lines = goalProgress(plan, solved);
+        return open.some(isAveraged) ? [...lines, 'These figures assume average Mystic Forge yields.'] : lines;
+      },
+    ],
     decisions: [
       steps.some((s) => s.undecided) ? 'Decide first' : 'Recipe choices',
       () => decisions(planChoices(plan, { ...solved, steps })),
     ],
     gates: ['Time-gated: start these early', () => gates(steps)],
-    acquire: ['Earn', () => acquire(open)],
-    buy: ['Buy on the trading post', () => buy(open, plan)],
-    vendor: ['Buy from vendors', () => vendor(open)],
+    acquire: ['Earn', () => acquire(open, averagedInputs(open))],
+    buy: ['Buy on the trading post', () => buy(open, plan, averagedInputs(open))],
+    vendor: ['Buy from vendors', () => vendor(open, averagedInputs(open))],
     make: ['Make, in order', () => make({ ...solved, steps: steps.filter((s) => s.count > 0) })],
     covered: [
       'Already covered',

@@ -98,3 +98,16 @@ describe('several goals', () => {
     expect(renderPlan(swordPlan())).not.toContain('## One at a time');
   });
 });
+
+describe('average yields', () => {
+  it('warns above the totals and marks what moves with luck, only when something is random', () => {
+    expect(renderPlan(swordPlan())).not.toContain('Averages, not guarantees');
+    const plan = swordPlan();
+    // The sword's forge now yields 0.5 on average.
+    plan.data.recipes[1] = [{ ...plan.data.recipes[1]![0]!, output_count: 0.5 }];
+    const md = renderPlan(plan);
+    expect(md).toContain('**Averages, not guarantees:** 1 × Sword (about 2 forges)');
+    expect(md).toMatch(/× Bar \(average\)/);
+    expect(renderPlan(plan, { sections: ['buy'] })).toContain('Averages, not guarantees');
+  });
+});
