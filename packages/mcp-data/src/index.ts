@@ -194,13 +194,22 @@ export function createServer(): McpServer {
           )
           .optional()
           .describe('Step → note, or null to remove it.'),
+        settings: z
+          .object({
+            useOwnMaterials: z.boolean().optional().describe('Take owned items off the plan (default true).'),
+            dailyCrafts: z.boolean().optional().describe('Craft the once-a-day items (default true).'),
+            forgePromotions: z.boolean().optional().describe('Use Mystic Forge material promotions where cheaper in gold (default false).'),
+            deductOwnedValue: z.boolean().optional().describe('State value net of owned materials (default true).'),
+          })
+          .optional()
+          .describe('Ask the player before changing these.'),
         refresh_prices: z.boolean().default(false).describe('Read current trading post prices first.'),
         sections,
       },
       annotations: WRITES_PLAN,
     },
-    ({ plan, choose, done, undone, notes, refresh_prices, sections }) =>
-      run(() => plans.planUpdate(client, wiki, plan, { choose, done, undone, notes, refreshPrices: refresh_prices, sections })),
+    ({ plan, choose, done, undone, notes, settings, refresh_prices, sections }) =>
+      run(() => plans.planUpdate(client, wiki, plan, { choose, done, undone, notes, settings, refreshPrices: refresh_prices, sections })),
   );
 
   server.registerTool(

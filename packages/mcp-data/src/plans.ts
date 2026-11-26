@@ -1,6 +1,6 @@
 /** The crafting-plan tools: load or build a plan, change it, save it, render it. */
 import type { Gw2Client } from '@gw2kit/client';
-import { createPlan, refreshPrices, solvePlan, updatePlan, type CraftingPlan, type PlanNote, type PlanUpdate } from '@gw2kit/recipes';
+import { createPlan, refreshPrices, solvePlan, updatePlan, type CraftingPlan, type PlanNote, type PlanUpdate, type PlanSettings } from '@gw2kit/recipes';
 import type { WikiClient } from '@gw2kit/wiki';
 import { DEFAULT_VENDOR_CURRENCY, fmt, quoteExcerpt, renderPlan, researchPlan, type PlanSectionId } from '@gw2-ai/core';
 import { listPlans, loadPlan, planExists, planPath, planSlug, plansDir, savePlan } from '@gw2-ai/core/plans';
@@ -77,6 +77,7 @@ export interface PlanUpdateArgs {
   done?: string[] | undefined;
   undone?: string[] | undefined;
   notes?: Record<string, { text: string; source?: string | undefined; gate?: string | undefined } | null> | undefined;
+  settings?: { [K in keyof PlanSettings]?: boolean | undefined } | undefined;
   refreshPrices?: boolean;
   sections?: readonly PlanSectionId[] | undefined;
 }
@@ -96,7 +97,9 @@ export async function planUpdate(
 ): Promise<string> {
   let plan = await loadPlan(name, dir);
   if (args.refreshPrices) plan = await refreshPrices(client, plan);
+  const settings = Object.entries(args.settings ?? {}).filter((e): e is [string, boolean] => e[1] !== undefined);
   const update: PlanUpdate = {
+    ...(settings.length ? { settings: Object.fromEntries(settings) } : {}),
     ...(args.choose ? { choose: args.choose } : {}),
     ...(args.done ? { done: args.done } : {}),
     ...(args.undone ? { undone: args.undone } : {}),

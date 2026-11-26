@@ -132,3 +132,51 @@ describe('items only an alternative vendor offer charges', () => {
     expect(chosen.done).toEqual(['i77']);
   });
 });
+
+describe('plan settings', () => {
+  const solve = (plan: ReturnType<typeof desert>, settings: Record<string, boolean>) => {
+    const result = updatePlan(plan, { settings });
+    expect(result.errors).toEqual([]);
+    return solvePlan(parsePlan(JSON.stringify(result.plan)));
+  };
+
+  it('can ignore owned materials, and always says what they are worth', () => {
+    const plan = withHoldings(desert(), { items: { 6: 20 }, wallet: {} });
+    const using = solve(plan, {});
+    expect([using.coin, using.fullCoin]).toEqual([40, 140]);
+    const ignoring = solve(plan, { useOwnMaterials: false });
+    expect([ignoring.coin, ignoring.fullCoin]).toEqual([140, 140]);
+    expect(step(ignoring, 'Ore')).toMatchObject({ owned: 0, count: 20 });
+  });
+
+  it('stops scheduling daily crafts when asked', () => {
+    const d = data();
+    // 46742 is Lump of Mithrillium, one of the daily items.
+    d.items[46742] = { name: 'Lump', bound: true };
+    d.searched.push(46742);
+    d.recipes[2] = [craft(10, [[46742, 3]])];
+    d.recipes[46742] = [craft(12, [[6, 1]])];
+    const plan = planFromData(d);
+    expect(step(solvePlan(plan), 'Lump')).toMatchObject({ action: 'craft', perDay: 1, count: 3 });
+    const off = solve(plan, { dailyCrafts: false });
+    expect(step(off, 'Lump')).toMatchObject({ action: 'earn', inputs: [] });
+    expect(step(off, 'Lump')!.perDay).toBeUndefined();
+  });
+
+  it('uses promotions only when on, treating their stones as costing no gold', () => {
+    const d = data();
+    d.items[7] = { name: 'Fine Ore', sell: 1000 };
+    d.items[20796] = { name: "Philosopher's Stone" };
+    d.searched.push(7, 20796);
+    d.recipes[2] = [craft(10, [[7, 12]])];
+    d.promotions = { 7: [{ ...forge([[6, 50], [20796, 5]]), output_count: 6 }] };
+    const plan = planFromData(d);
+    expect(step(solvePlan(plan), 'Fine Ore')!.action).toBe('buy');
+    expect(step(solve(plan, { forgePromotions: true }), 'Fine Ore')).toMatchObject({ action: 'forge', times: 2, route: { promotion: true } });
+  });
+
+  it('rejects settings it does not know', () => {
+    const result = updatePlan(planFromData(data()), { settings: { nope: true, forgePromotions: true } as never });
+    expect(result.errors).toHaveLength(2);
+  });
+});
