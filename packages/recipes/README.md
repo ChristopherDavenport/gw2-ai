@@ -45,13 +45,20 @@ A `CraftingPlan` is the `RecipeData` plus what the player decided, finished, lea
 import { createPlan, parsePlan, solvePlan, updatePlan, withHoldings } from '@gw2kit/recipes';
 
 let plan = await createPlan(client, 30704, 1, { wiki });
-({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes; returns `errors`
+({ plan } = updatePlan(plan, { done: ['Gift of Mastery'] }));       // also choose, undone, notes, settings; returns `errors`
 plan = withHoldings(plan, { items: { 19675: 77 }, wallet: {} });
 
 const { steps, coin } = solvePlan(plan);
 steps.filter((s) => s.undecided);                                   // recipe choices gold can't compare
 parsePlan(JSON.stringify(plan));                                    // read one back; throws if it isn't a plan
 ```
+`settings` takes four booleans (defaults in `DEFAULT_PLAN_SETTINGS`):
+
+- `useOwnMaterials` (true): take owned items off what the plan calls for. Wallet balances always count.
+- `dailyCrafts` (true): craft the five once-a-day items. Off, they are not scheduled, so a tradeable product such as Deldrimor Steel Ingot is bought instead.
+- `forgePromotions` (false): use Mystic Forge material promotions where their gold cost beats buying. Spirit Shard stones count as no gold, and yields are wiki averages. Needs a plan built with `createPlan`, which fetches them.
+- `deductOwnedValue` (true): state value net of owned materials. `solvePlan` always returns both `coin` and `fullCoin`.
+
 
 `refreshPrices(client, plan)` reads trading post prices again without refetching the graph. [`@gw2-ai/core`](https://www.npmjs.com/package/@gw2-ai/core) renders a plan as markdown.
 

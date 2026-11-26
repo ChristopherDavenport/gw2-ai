@@ -522,3 +522,12 @@ textarea.update-input {
   flex: 1 1 16rem;
   min-width: 0;
 }
+
+.plan-settings {
+  margin: 0 0 1rem;
+}
+
+.plan-settings label {
+  display: inline-block;
+  margin: 0 1.5rem 0.5rem 0;
+}

@@ -21,7 +21,7 @@ Claude Code: `claude mcp add --scope user gw2-data -- npx -y @gw2-ai/mcp-data`, 
 - `gw2_recipe_tree`: the full crafting tree with the cheaper of crafting or buying at each step. Mystic Forge recipes (legendary weapons and gifts, clovers) and NPC vendor prices (Philosopher's Stone for Spirit Shards, Obsidian Shard for Karma) come from the wiki, so account-bound parts add up to wallet-currency totals.
 - `gw2_plan_create`: start a saved crafting plan for a large goal such as a legendary.
 - `gw2_plan_show`: a plan as markdown (all of it, chosen sections or one component), or the list of saved plans.
-- `gw2_plan_update`: record recipe choices, finished steps and notes; optionally refresh prices.
+- `gw2_plan_update`: record recipe choices, finished steps, notes and plan settings (own materials, daily crafts, forge promotions, how value is shown); optionally refresh prices.
 - `gw2_plan_research`: wiki intro and Acquisition section (without the vendor table) for named steps.
 - `gw2_recipes_using`: crafting and Mystic Forge recipes that use an item.
 - `gw2_gem_exchange`: gems to gold and gold to gems.

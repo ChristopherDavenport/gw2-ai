@@ -1,5 +1,5 @@
 import { pageUrl, type VendorCaps } from '@gw2kit/wiki';
-import { solvePlan, type CraftingPlan, type PlanRoute, type PlanStep, type SolvedPlan, type StepKey } from '@gw2kit/recipes';
+import { planSettings, solvePlan, type CraftingPlan, type PlanRoute, type PlanSettings, type PlanStep, type SolvedPlan, type StepKey } from '@gw2kit/recipes';
 import { cell, coins, day, num, text } from './format.js';
 import { needsResearch } from './research.js';
 
@@ -72,7 +72,7 @@ function routeLabel(route: PlanRoute, all: readonly PlanRoute[]): string {
   const inputs = (route.action !== 'vendor' && unique.length ? unique : route.inputs)
     .map((i) => (i.key === 'c1' ? coins(i.count) : `${num(i.count)} × ${i.name}`))
     .join(', ');
-  const verb = route.action === 'forge' ? 'Mystic Forge' : route.action === 'vendor' ? 'vendor' : 'craft';
+  const verb = route.promotion ? 'Mystic Forge promotion' : route.action === 'forge' ? 'Mystic Forge' : route.action === 'vendor' ? 'vendor' : 'craft';
   return `${verb} with ${inputs}`;
 }
 
@@ -131,7 +131,8 @@ function decisions(choices: PlanChoice[]): string[] {
 
 function gates(steps: PlanStep[]): string[] {
   return steps.flatMap((s) => {
-    const gate = [capText(s), s.note?.gate ? text(s.note.gate) : ''].filter(Boolean).join('; ');
+    const daily = s.perDay ? `${s.perDay} per day${s.count > s.perDay ? `, so ${num(Math.ceil(s.count / s.perDay))} days` : ''}` : '';
+    const gate = [daily, capText(s), s.note?.gate ? text(s.note.gate) : ''].filter(Boolean).join('; ');
     return s.count > 0 && gate ? [`- ${amount(s.count, s.name)}: ${gate}`] : [];
   });
 }
@@ -178,13 +179,14 @@ function vendor(steps: PlanStep[]): string[] {
 function makeLine(s: PlanStep): string {
   const verb = s.action === 'forge' ? 'Forge' : 'Craft';
   const recipe = s.route!.recipe!;
-  const how =
-    s.action === 'forge'
+  const how = s.route!.promotion
+    ? `, by promotion: about ${num(s.times)} forges at an average net gain of ${s.route!.output} (random; you need 1 × ${text(s.name)} to put in)`
+    : s.action === 'forge'
       ? s.route!.output < 1
         ? `, about ${num(s.times)} forges at an average yield of ${s.route!.output} (random, so keep spares)`
         : ''
       : ` (${recipe.disciplines.join('/')} ${recipe.min_rating})`;
-  return `${box(s)} ${verb} ${amount(s.count, s.name)}${held(s)}${how}: ${inputText(s)}${noteText(s)}`;
+  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${inputText(s)}${noteText(s)}`;
 }
 
 /** Crafts and forges, inputs before outputs, grouped by the part of the goal. */
@@ -209,9 +211,29 @@ const UPDATING = `To change this plan, reply with a JSON update. Steps are named
   "choose": { "<step>": "buy | earn | vendor | an ingredient only the wanted recipe uses" },
   "done": ["<step>"],
   "undone": ["<step>"],
-  "notes": { "<step>": { "text": "how to get it", "source": "<url>", "gate": "1 per day" } }
+  "notes": { "<step>": { "text": "how to get it", "source": "<url>", "gate": "1 per day" } },
+  "settings": { "useOwnMaterials": true, "dailyCrafts": true, "forgePromotions": false, "deductOwnedValue": true }
 }
 \`\`\``;
+
+/** What each setting is called, for the plan's header and the site's checkboxes. */
+export const PLAN_SETTING_LABELS: Readonly<Record<keyof PlanSettings, string>> = {
+  useOwnMaterials: 'Use my own materials',
+  dailyCrafts: 'Craft daily cooldown items',
+  forgePromotions: 'Use Mystic Forge promotions',
+  deductOwnedValue: 'Subtract my materials from the value',
+};
+
+/** The gold headline: what is left to pay, or the whole value with owned materials counted in. */
+function valueText(plan: CraftingPlan, solved: SolvedPlan, gold: number, scoped: boolean): string {
+  const settings = planSettings(plan);
+  const priced = `at trading post sell listings of ${day(plan.data.fetchedAt)}`;
+  const owned = scoped ? 0 : Math.max(0, solved.fullCoin - solved.coin);
+  if (!owned) return `Gold still to spend: **${coins(gold)}** ${priced}.`;
+  return settings.deductOwnedValue
+    ? `Gold still to spend: **${coins(gold)}** ${priced}, after your materials (worth ${coins(owned)} here).`
+    : `Total value: **${coins(solved.fullCoin)}** ${priced}, including ${coins(owned)} of your own materials; ${coins(gold)} left to spend.`;
+}
 
 /** Markdown for a plan: what to decide, what takes time, what to get and what to make. */
 export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}): string {
@@ -239,10 +261,17 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
 
   const out = [
     `# Crafting plan: ${amount(plan.goal.quantity, plan.goal.name)}`,
-    `Gold still to spend: **${coins(gold)}** at trading post sell listings of ${day(data.fetchedAt)}. ` +
+    `${valueText(plan, solved, gold, scope !== '')} ` +
       `${num(open.length)} steps open, ${num(research.length)} needing research. ` +
-      (holdings.fetchedAt ? `Holdings read ${day(holdings.fetchedAt)}.` : 'Account holdings are not counted.') +
+      (!planSettings(plan).useOwnMaterials
+        ? 'Your own materials are not used.'
+        : holdings.fetchedAt
+          ? `Holdings read ${day(holdings.fetchedAt)}.`
+          : 'Account holdings are not counted.') +
       scope,
+    `Settings: ${Object.entries(PLAN_SETTING_LABELS)
+      .map(([key, label]) => `${label.toLowerCase()}: ${planSettings(plan)[key as keyof PlanSettings] ? 'yes' : 'no'}`)
+      .join(' · ')}.`,
     ...warnings,
   ];
 

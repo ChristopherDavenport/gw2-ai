@@ -19,6 +19,8 @@ export {
 } from './tree.js';
 export {
   createPlan,
+  DEFAULT_PLAN_SETTINGS,
+  planSettings,
   parsePlan,
   planFromData,
   refreshPrices,
@@ -32,6 +34,7 @@ export {
   type PlanNote,
   type PlanResearch,
   type PlanRoute,
+  type PlanSettings,
   type PlanStep,
   type PlanUpdate,
   type SolvedPlan,

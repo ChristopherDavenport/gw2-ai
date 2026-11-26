@@ -6,8 +6,8 @@
  * renderMarkdown's sanitizer.
  */
 import { Gw2Client, missingPermissions, type CacheStore, type TokenInfo } from '@gw2kit/client';
-import { DEFAULT_VENDOR_CURRENCY, planChoices, readHoldings, renderPlan, researchPlan, type PlanChoice } from '@gw2-ai/core';
-import { createPlan, parsePlan, refreshPrices, updatePlan, withHoldings, type CraftingPlan } from '@gw2kit/recipes';
+import { DEFAULT_VENDOR_CURRENCY, PLAN_SETTING_LABELS, planChoices, readHoldings, renderPlan, researchPlan, type PlanChoice } from '@gw2-ai/core';
+import { createPlan, parsePlan, planSettings, refreshPrices, updatePlan, withHoldings, type CraftingPlan, type PlanSettings, type PlanUpdate } from '@gw2kit/recipes';
 import { WikiClient } from '@gw2kit/wiki';
 import { $, describeError, downloadText, el, setStatus, setupTabs, type Tone } from './dom.js';
 import { planFilename } from './filename.js';
@@ -60,6 +60,16 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   const client = new Gw2Client({ cache: options.cache });
   const wiki = new WikiClient({ cache: options.cache });
 
+  const settingsBox = $<HTMLFieldSetElement>('plan-settings');
+  const settingInputs = (Object.entries(PLAN_SETTING_LABELS) as [keyof PlanSettings, string][]).map(([name, label]) => {
+    const input = el('input');
+    input.type = 'checkbox';
+    input.id = `plan-setting-${name}`;
+    input.addEventListener('change', () => change({ settings: { [name]: input.checked } }, label, () => (input.checked = !input.checked)));
+    $('plan-setting-list').append(el('label', {}, input, ` ${label}`));
+    return { name, input };
+  });
+
   let current: { plan: CraftingPlan; markdown: string } | undefined;
   let busy = false;
   /** Bumped when the key is forgotten, so work already running can't bring holdings back. */
@@ -68,6 +78,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   function updateControls(): void {
     for (const b of [buildBtn, loadBtn, pricesBtn, applyBtn]) b.disabled = busy;
     choiceBox.disabled = busy;
+    settingsBox.disabled = busy;
     const account = options.account();
     holdingsBtn.hidden = !account;
     holdingsBtn.disabled = busy;
@@ -86,6 +97,8 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     preview.replaceChildren(renderMarkdown(markdown));
     setStatus(copyStatus, '');
     output.hidden = false;
+    const settings = planSettings(plan);
+    for (const { name, input } of settingInputs) input.checked = settings[name];
     showChoices(planChoices(plan));
   }
 
@@ -126,12 +139,20 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   }
 
   function choose(choice: PlanChoice, route: string): void {
+    change({ choose: { [choice.key]: route } }, choice.name);
+  }
+
+  /** Apply a change made with the page's controls; `revert` undoes the control if it can't be. */
+  function change(update: PlanUpdate, what: string, revert?: () => void): void {
     if (!current || busy) return;
     const { plan } = current;
     const epoch = holdingsEpoch;
-    void run(copyStatus, `Changing ${choice.name}...`, async () => {
-      const result = updatePlan(plan, { choose: { [choice.key]: route } });
-      if (result.errors.length) return [result.errors.join(' '), 'error'];
+    void run(copyStatus, `Changing ${what}...`, async () => {
+      const result = updatePlan(plan, update);
+      if (result.errors.length) {
+        revert?.();
+        return [result.errors.join(' '), 'error'];
+      }
       const note = await commitAndResearch(result.plan, copyStatus, epoch);
       return [`Plan updated.${note}`, 'ok'];
     });
@@ -319,7 +340,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     void run(updateStatus, 'Applying the update...', async () => {
       const result = updatePlan(plan, parsePlanUpdate(updateInput.value));
       updateErrors.replaceChildren(...result.errors.map((message) => el('li', { text: message })));
-      const changed = (p: CraftingPlan) => JSON.stringify([p.choices, p.done, p.notes]);
+      const changed = (p: CraftingPlan) => JSON.stringify([p.choices, p.done, p.notes, p.settings]);
       if (result.errors.length && changed(result.plan) === changed(plan)) return ['Nothing was changed:', 'error'];
       const note = await commitAndResearch(result.plan, updateStatus, epoch);
       if (result.errors.length) return [`Applied in part.${note} These entries were not applied:`, 'error'];

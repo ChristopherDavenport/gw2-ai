@@ -138,6 +138,11 @@ export interface FetchRecipeOptions {
    * Karma. Applied when fetching, since it decides which costs are looked up.
    */
   vendorCurrency?: ReadonlyMap<number, number>;
+  /**
+   * With `wiki`: also collect Mystic Forge material promotions, and what they
+   * take, into `RecipeData.promotions`. The tree solver ignores them.
+   */
+  promotions?: boolean;
 }
 
 export interface SolveRecipeOptions {
@@ -174,6 +179,12 @@ export interface RecipeData {
   searched: number[];
   /** Output item id → recipes that make it. */
   recipes: Record<number, SourceRecipe[]>;
+  /**
+   * Output item id → material promotions, with `output_count` the average net
+   * gain: the one unit of the output each forge takes is left out of both
+   * sides. Present only when asked for.
+   */
+  promotions?: Record<number, SourceRecipe[]>;
   /** Currency id → name. */
   currencies: Record<number, string>;
   /** Guild upgrade id → name. */
@@ -236,6 +247,7 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
     vendors: {},
     vendorUnmatched: [],
     status: {},
+    ...(options.promotions && wiki ? { promotions: {} } : {}),
   };
   const searched = new Set<number>();
   const seen = new Set<number>([itemId]);
@@ -255,12 +267,15 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
     const recipes = await client.many('/v2/recipes', recipeIdLists.flat());
     for (const r of recipes.values()) found.push([r.output_item_id, fromApi(r)]);
 
+    const promoted: typeof found = [];
     // Mystic Forge recipes from the wiki. Items the API can craft can have one too.
     if (search && wiki && data.status.mysticForge?.status !== 'failed') {
       try {
         for (const r of await wiki.mysticForgeRecipes(frontier)) {
           const recipe = fromForge(r);
           if (recipe) found.push([r.output_item_id, recipe]);
+          const promotion = data.promotions && fromPromotion(r);
+          if (promotion) promoted.push([r.output_item_id, promotion]);
         }
         data.status.mysticForge = { status: 'ok' };
       } catch (err) {
@@ -269,8 +284,9 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
     }
 
     const next: number[] = [];
-    for (const [output, r] of found) {
-      (data.recipes[output] ??= []).push(r);
+    for (const [output, r] of found) (data.recipes[output] ??= []).push(r);
+    for (const [output, r] of promoted) (data.promotions![output] ??= []).push(r);
+    for (const [, r] of [...found, ...promoted]) {
       for (const ing of r.ingredients) {
         if (ing.type === 'Currency') currencyIds.add(ing.id);
         else if (ing.type === 'GuildUpgrade') upgradeIds.add(ing.id);
@@ -511,6 +527,24 @@ function fromForge(r: MysticForgeRecipe): SourceRecipe | undefined {
     ingredients,
     wiki: { name: r.name, url: r.url },
   };
+}
+
+const PHILOSOPHERS_STONE = 20796;
+
+/**
+ * Average yield of a material promotion by its minimum, which is what the wiki
+ * data holds (from the wiki's Mystic Forge/Material Promotion page): common
+ * tiers 1-4 and 5, then fine tiers 1-4 and 5.
+ */
+const PROMOTION_AVERAGE: Record<number, number> = { 40: 86.34, 10: 18.92, 7: 18.51, 5: 6.91 };
+
+/** A material promotion: a random forge that takes one of what it makes, plus a Philosopher's Stone. */
+function fromPromotion(r: MysticForgeRecipe): SourceRecipe | undefined {
+  const seed = r.ingredients.find((i) => i.item_id === r.output_item_id);
+  const average = PROMOTION_AVERAGE[r.output_item_count];
+  if (r.base || !seed || !average || !r.ingredients.some((i) => i.item_id === PHILOSOPHERS_STONE)) return undefined;
+  const recipe = fromForge({ ...r, base: true, ingredients: r.ingredients.filter((i) => i !== seed) });
+  return recipe && { ...recipe, output_count: Math.round((average - seed.count) * 100) / 100 };
 }
 
 /**
