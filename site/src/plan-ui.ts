@@ -7,7 +7,7 @@
  */
 import { Gw2Client, missingPermissions, type CacheStore, type TokenInfo } from '@gw2kit/client';
 import { DEFAULT_VENDOR_CURRENCY, PLAN_SETTING_LABELS, planChoices, readHoldings, renderPlan, researchPlan, type PlanChoice } from '@gw2-ai/core';
-import { createPlan, parsePlan, planSettings, refreshPrices, updatePlan, withHoldings, type CraftingPlan, type PlanSettings, type PlanUpdate } from '@gw2kit/recipes';
+import { addOtherOffers, createPlan, mergeLookups, parsePlan, planFromData, planSettings, refreshPrices, updatePlan, withHoldings, type CraftingPlan, type FetchProgress, type RecipeData, type PlanSettings, type PlanUpdate } from '@gw2kit/recipes';
 import { WikiClient } from '@gw2kit/wiki';
 import { $, describeError, downloadText, el, setStatus, setupTabs, type Tone } from './dom.js';
 import { planFilename } from './filename.js';
@@ -75,13 +75,19 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     return { name, input, row };
   });
 
-  let current: { plan: CraftingPlan; markdown: string } | undefined;
+  const background = $('plan-background');
+  const outputButtons = ['plan-copy', 'plan-download-md', 'plan-download-json'].map((id) => $<HTMLButtonElement>(id));
+
+  /** `build` counts builds and loads, so late lookups for a replaced plan are dropped. */
+  let current: { plan: CraftingPlan; markdown: string; build: number } | undefined;
+  let builds = 0;
+  let shownChoices = '';
   let busy = false;
   /** Bumped when the key is forgotten, so work already running can't bring holdings back. */
   let holdingsEpoch = 0;
 
   function updateControls(): void {
-    for (const b of [buildBtn, loadBtn, pricesBtn, applyBtn]) b.disabled = busy;
+    for (const b of [buildBtn, loadBtn, pricesBtn, applyBtn, ...outputButtons]) b.disabled = busy;
     choiceBox.disabled = busy;
     settingsBox.disabled = busy;
     showSettings();
@@ -109,20 +115,44 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
   }
 
   /** Show `plan` and store it. Throws, changing nothing, if it can't be rendered. */
-  async function commit(plan: CraftingPlan, epoch = holdingsEpoch): Promise<void> {
-    const next = epoch === holdingsEpoch ? plan : withoutHoldings(plan);
-    show(next, renderPlan(next));
+  async function commit(plan: CraftingPlan, epoch = holdingsEpoch, replace = false): Promise<void> {
+    // Keep what background lookups added since `plan` was taken.
+    const merged = current && !replace ? mergeLookups(plan, current.plan) : plan;
+    const next = epoch === holdingsEpoch ? merged : withoutHoldings(merged);
+    show(next, renderPlan(next), replace ? ++builds : builds);
+    if (replace) setStatus(copyStatus, '');
     await persist(next);
   }
 
-  function show(plan: CraftingPlan, markdown: string): void {
-    current = { plan, markdown };
+  function show(plan: CraftingPlan, markdown: string, build = builds): void {
+    current = { plan, markdown, build };
+    showMarkdown(markdown);
+    showSettings();
+    const choices = planChoices(plan);
+    // Rebuilding the selects would close one the player has open.
+    const signature = JSON.stringify(choices);
+    if (signature !== shownChoices || choiceBox.hidden !== (choices.length === 0)) showChoices(choices);
+    shownChoices = signature;
+  }
+
+  function showMarkdown(markdown: string): void {
     raw.value = markdown;
     preview.replaceChildren(renderMarkdown(markdown));
-    setStatus(copyStatus, '');
     output.hidden = false;
-    showSettings();
-    showChoices(planChoices(plan));
+  }
+
+  const progressText = ({ phase, done, total }: FetchProgress) =>
+    phase === 'recipes'
+      ? `Reading recipes and prices: ${done} items so far...`
+      : phase === 'vendors'
+        ? `Checking vendors for items with no other route: ${done} of ${total ?? '?'}...`
+        : `Looking for other places to buy: ${done} of ${total ?? '?'}`;
+
+  /** The plan as far as it goes before vendors are checked. Not kept or copyable. */
+  function showPartial(data: RecipeData, quantity: number): void {
+    choiceBox.hidden = true;
+    shownChoices = '';
+    showMarkdown(`> Still loading: vendors are being checked, so steps and totals will change.\n\n${renderPlan(planFromData(data, quantity))}`);
   }
 
   // ---- Choices ----
@@ -176,8 +206,9 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
         revert?.();
         return [result.errors.join(' '), 'error'];
       }
-      const note = await commitAndResearch(result.plan, copyStatus, epoch);
-      return [`Plan updated.${note}`, 'ok'];
+      await commit(result.plan, epoch);
+      void enrich(builds);
+      return ['Plan updated.', 'ok'];
     });
   }
 
@@ -186,6 +217,81 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       await savePlan(plan);
     } catch (err) {
       setStatus(copyStatus, `Couldn't save the plan in this browser, so a reload will lose it: ${describeError(err)}`, 'error');
+    }
+  }
+
+  /** The build the background worker is on, and whether the plan changed since it last looked. */
+  let working: number | undefined;
+  let again = false;
+
+  /**
+   * What only adds detail to a finished plan: other places to buy, then wiki
+   * text for steps. Runs while the plan is in use; call it after any change that
+   * can add steps, and a worker already on this build takes another pass.
+   */
+  async function enrich(build: number): Promise<void> {
+    if (working === build) {
+      again = true;
+      return;
+    }
+    working = build;
+    const mine = () => current?.build === build;
+    const say = (text: string, tone: Tone = 'info') => {
+      if (mine()) setStatus(background, text, tone);
+    };
+    /** Fold looked-up data into whatever the plan has become. */
+    const add = async (found: CraftingPlan) => {
+      if (mine()) await commit(mergeLookups(current!.plan, found));
+    };
+    try {
+      if (!mine()) return;
+      let offersFetchedAt: string | undefined;
+      if (!current!.plan.data.offersFetchedAt) {
+        say('Looking for other places to buy. The plan is ready to use meanwhile.');
+        const offered = await addOtherOffers(client, current!.plan, {
+          wiki,
+          vendorCurrency: DEFAULT_VENDOR_CURRENCY,
+          onProgress: (p) => say(`${progressText(p)}. The plan is ready to use meanwhile.`),
+        });
+        // Marked as looked up only once everything is in, so a reload part way finishes the job.
+        const { offersFetchedAt: at, ...data } = offered.data;
+        offersFetchedAt = at;
+        await add({ ...offered, data });
+      }
+
+      const failed = new Set<string>();
+      do {
+        again = false;
+        if (!mine()) return;
+        let waiting: NonNullable<CraftingPlan['research']> = {};
+        let last = Date.now();
+        const flush = async () => {
+          const research = waiting;
+          waiting = {};
+          last = Date.now();
+          if (mine() && Object.keys(research).length) await add({ ...current!.plan, research });
+        };
+        const researched = await researchPlan(current!.plan, wiki, {
+          onProgress: (done, total, found) => {
+            if (total) say(`Reading the wiki for map sources and requirements: ${done} of ${total}`);
+            if (found) waiting[found.key] = found.research;
+            if (Date.now() - last > 3000) void flush();
+          },
+        });
+        await flush();
+        for (const name of researched.failed) failed.add(name);
+      } while (again);
+      // Cleared before the last write, so a change made during it starts a new worker.
+      working = undefined;
+      if (offersFetchedAt && mine()) {
+        await add({ ...current!.plan, data: { ...current!.plan.data, offersFetchedAt } });
+      }
+      say(failed.size ? `All loaded. No wiki text found for: ${[...failed].join(', ')}.` : 'All loaded.', 'ok');
+    } catch (err) {
+      say(`Couldn't load every detail: ${describeError(err)}. The plan itself is complete.`, 'error');
+    } finally {
+      if (working === build) working = undefined;
+      void options.cache.flush();
     }
   }
 
@@ -219,19 +325,6 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     !current ||
     !(current.plan.done.length || Object.keys(current.plan.choices).length || Object.keys(current.plan.notes).length) ||
     window.confirm('Replace the current plan? Its choices, finished steps and notes will be lost unless you downloaded its .json.');
-
-  /** Show the plan, then look up the steps that have no known route. */
-  async function commitAndResearch(plan: CraftingPlan, node: HTMLElement, epoch: number): Promise<string> {
-    await commit(plan, epoch);
-    setStatus(node, 'Reading the wiki for steps with no known route...');
-    try {
-      const researched = await researchPlan(plan, wiki);
-      await commit(researched.plan, epoch);
-      return researched.failed.length ? ` No wiki text found for: ${researched.failed.join(', ')}.` : '';
-    } catch (err) {
-      return ` The wiki lookup failed: ${describeError(err)}`;
-    }
-  }
 
   // ---- Build ----
 
@@ -267,12 +360,28 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
     if (!replaceOk()) return;
     void run(status, 'Looking up the item...', async () => {
       const id = await resolveItem(input);
-      setStatus(status, 'Fetching recipes, prices and vendors. A legendary takes one to two minutes...');
-      const plan = await createPlan(client, id, quantity, { wiki, vendorCurrency: DEFAULT_VENDOR_CURRENCY });
-      setStatus(updateStatus, '');
-      updateErrors.replaceChildren();
-      const note = await commitAndResearch(plan, status, holdingsEpoch);
-      return [`Plan ready.${note}`, 'ok'];
+      setStatus(status, 'Reading recipes and prices...');
+      setStatus(background, '');
+      const epoch = holdingsEpoch;
+      try {
+        const plan = await createPlan(client, id, quantity, {
+          wiki,
+          vendorCurrency: DEFAULT_VENDOR_CURRENCY,
+          otherOffers: false,
+          onProgress: (p) => setStatus(status, progressText(p)),
+          onRecipes: (data) => showPartial(data, quantity),
+        });
+        setStatus(updateStatus, '');
+        updateErrors.replaceChildren();
+        await commit(plan, epoch, true);
+      } catch (err) {
+        // Put back what the partial plan covered up.
+        if (current) showMarkdown(current.markdown);
+        else output.hidden = true;
+        throw err;
+      }
+      void enrich(builds);
+      return ['Plan ready.', 'ok'];
     });
   });
 
@@ -288,13 +397,15 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       if (file.size > MAX_FILE_BYTES) throw new Error('That file is too large to be a crafting plan.');
       const text = await file.text();
       try {
-        await commit(parsePlan(text));
+        await commit(parsePlan(text), holdingsEpoch, true);
       } catch {
         // parser and renderer messages quote internals or the file itself
         throw new Error("Couldn't load that file: it isn't a version 1 crafting plan, or it is damaged.");
       }
       setStatus(updateStatus, '');
+      setStatus(background, '');
       updateErrors.replaceChildren();
+      if (!current!.plan.data.offersFetchedAt) void enrich(builds);
       return ['Plan loaded.', 'ok'];
     });
   });
@@ -369,10 +480,11 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       updateErrors.replaceChildren(...result.errors.map((message) => el('li', { text: message })));
       const changed = (p: CraftingPlan) => JSON.stringify([p.choices, p.done, p.notes, p.settings]);
       if (result.errors.length && changed(result.plan) === changed(plan)) return ['Nothing was changed:', 'error'];
-      const note = await commitAndResearch(result.plan, updateStatus, epoch);
-      if (result.errors.length) return [`Applied in part.${note} These entries were not applied:`, 'error'];
+      await commit(result.plan, epoch);
+      void enrich(builds);
+      if (result.errors.length) return ['Applied in part. These entries were not applied:', 'error'];
       updateInput.value = '';
-      return [`Update applied.${note}`, 'ok'];
+      return ['Update applied.', 'ok'];
     });
   });
 
@@ -385,7 +497,11 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
       const plan = parsePlan(stored);
       const markdown = renderPlan(plan);
       // A build or load that finished first wins.
-      if (!current) show(plan, markdown);
+      if (!current) {
+        show(plan, markdown);
+        // A reload part way through the background lookups finishes them.
+        if (!plan.data.offersFetchedAt) void enrich(builds);
+      }
     } catch (err) {
       setStatus(status, `Couldn't restore the saved plan: ${describeError(err)}`, 'error');
     }

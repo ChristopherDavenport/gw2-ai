@@ -136,3 +136,23 @@ describe('WikiClient.section omit', () => {
     expect((await client.section('Coin', 'Acquisition', { omit: ['sold by'] }))?.text).toBe('Acquisition\nContained in\n- Chest');
   });
 });
+
+describe('intros', () => {
+  it('asks 20 titles at a time and answers under the titles asked for', async () => {
+    const asked: string[][] = [];
+    const fetch = (async (input: URL | string) => {
+      const titles = new URL(String(input)).searchParams.get('titles')!.split('|');
+      asked.push(titles);
+      const pages = Object.fromEntries(
+        titles.filter((t) => t !== 'gone').map((t, i) => [i, { title: t === 'noxious pod' ? 'Noxious Pod' : t, extract: `About ${t}.` }]),
+      );
+      return new Response(JSON.stringify({ query: { normalized: [{ from: 'noxious pod', to: 'Noxious Pod' }], pages } }));
+    }) as typeof globalThis.fetch;
+    const titles = ['noxious pod', 'gone', ...Array.from({ length: 20 }, (_, i) => `T${i}`)];
+    const found = await new WikiClient({ fetch }).intros(titles);
+    expect(asked.map((a) => a.length)).toEqual([20, 2]);
+    expect(found.get('noxious pod')).toBe('About noxious pod.');
+    expect(found.has('gone')).toBe(false);
+    expect(found.size).toBe(21);
+  });
+});

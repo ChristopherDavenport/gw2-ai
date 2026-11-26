@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { parsePlan, planFromData, solvePlan, updatePlan, withHoldings, type RecipeData, type SolvedPlan, type SourceRecipe } from '../src/index.js';
+import { mergeLookups, parsePlan, planFromData, solvePlan, updatePlan, withHoldings, type RecipeData, type SolvedPlan, type SourceRecipe } from '../src/index.js';
 
 const craft = (id: number, ingredients: [number, number][], output_count = 1): SourceRecipe => ({
   source: 'crafting',
@@ -190,5 +190,29 @@ describe('plan settings', () => {
   it('rejects settings it does not know', () => {
     const result = updatePlan(planFromData(data()), { settings: { nope: true, forgePromotions: true } as never });
     expect(result.errors).toHaveLength(2);
+  });
+});
+
+describe('mergeLookups', () => {
+  it('adds late lookups without undoing what the player changed meanwhile', () => {
+    const base = planFromData(data());
+    const found = structuredClone(base);
+    found.data.vendors[6] = { url: 'u', offers: [] };
+    found.data.items[999] = { name: 'Ticket' };
+    found.research = { i3: { text: 'old', source: 'u' }, i4: { text: 'new', source: 'u' } };
+    const changed = { ...updatePlan(base, { done: ['Hilt'] }).plan, research: { i3: { text: 'mine', source: 'u' } } };
+
+    const merged = mergeLookups(changed, found);
+    expect(merged.done).toEqual(changed.done);
+    expect(merged.data.vendors).toHaveProperty('6');
+    expect(merged.data.vendors).toHaveProperty('3');
+    expect(merged.data.items).toHaveProperty('999');
+    expect(merged.research).toMatchObject({ i3: { text: 'mine' }, i4: { text: 'new' } });
+  });
+
+  it('ignores a plan for something else', () => {
+    const other = planFromData({ ...data(), rootId: 2 });
+    const plan = planFromData(data());
+    expect(mergeLookups(plan, other)).toBe(plan);
   });
 });

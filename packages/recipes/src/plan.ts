@@ -201,15 +201,54 @@ export async function createPlan(
   client: Gw2Client,
   itemId: number,
   quantity = 1,
-  options: FetchRecipeOptions = {},
+  options: CreatePlanOptions = {},
 ): Promise<CraftingPlan> {
   // Promotions are fetched so the setting can be flipped later without a rebuild.
   const data = await fetchRecipeData(client, itemId, { promotions: true, maxOffers: PLAN_OFFERS, ...options });
   const plan = planFromData(data, quantity);
-  if (options.wiki && options.vendors !== false) {
-    await addVendorOffers(client, options.wiki, data, worthAnotherRoute(plan), { maxOffers: PLAN_OFFERS, ...options });
-  }
-  return plan;
+  return options.otherOffers === false ? plan : addOtherOffers(client, plan, options);
+}
+
+export interface CreatePlanOptions extends FetchRecipeOptions {
+  /** Look up other places to buy (addOtherOffers) before returning. Default true. */
+  otherOffers?: boolean;
+}
+
+/**
+ * The plan with other places to buy looked up, for bound forge results and the
+ * biggest purchases. It only adds routes to steps that have one, so no step or
+ * total changes until the player picks one. Needs `options.wiki`.
+ */
+export async function addOtherOffers(client: Gw2Client, plan: CraftingPlan, options: FetchRecipeOptions = {}): Promise<CraftingPlan> {
+  if (!options.wiki || options.vendors === false) return plan;
+  // addVendorOffers writes into the data it is given.
+  const data = structuredClone(plan.data);
+  await addVendorOffers(client, options.wiki, data, worthAnotherRoute(plan), { maxOffers: PLAN_OFFERS, ...options });
+  data.offersFetchedAt = new Date().toISOString();
+  return { ...plan, data };
+}
+
+/**
+ * `plan` with what `extra`, an earlier or later copy of the same build, has
+ * looked up and it lacks: vendor offers, the items they charge and wiki
+ * research. `plan` wins everywhere else, so lookups finishing late can't undo
+ * the player's changes.
+ */
+export function mergeLookups(plan: CraftingPlan, extra: CraftingPlan): CraftingPlan {
+  if (plan.data.rootId !== extra.data.rootId) return plan;
+  const offersFetchedAt = plan.data.offersFetchedAt ?? extra.data.offersFetchedAt;
+  const research = { ...extra.research, ...plan.research };
+  return {
+    ...plan,
+    data: {
+      ...plan.data,
+      items: { ...extra.data.items, ...plan.data.items },
+      currencies: { ...extra.data.currencies, ...plan.data.currencies },
+      vendors: { ...extra.data.vendors, ...plan.data.vendors },
+      ...(offersFetchedAt ? { offersFetchedAt } : {}),
+    },
+    ...(Object.keys(research).length ? { research } : {}),
+  };
 }
 
 /** Vendor offers kept per item: enough for every map's exchange. */

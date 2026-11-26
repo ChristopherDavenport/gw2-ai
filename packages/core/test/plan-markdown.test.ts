@@ -55,3 +55,16 @@ describe('renderPlan', () => {
     expect(renderPlan(swordPlan(), { component: 'Nope' })).toBe('No step named "Nope" in this plan.');
   });
 });
+
+describe('gold on hand', () => {
+  const withGold = (wallet: Record<number, number>) =>
+    renderPlan(withHoldings(swordPlan(), { items: {}, wallet, fetchedAt: '2026-11-26T00:00:00.000Z' }));
+
+  it('says what is missing, or what is spare, once holdings are read', () => {
+    // The sword takes 3 bars at 1s each.
+    expect(withGold({ 1: 100 })).toContain('Your wallet has 1s: **2s short**.');
+    expect(withGold({ 1: 500 })).toContain('Your wallet has 5s: enough, with 2s to spare.');
+    expect(withGold({})).toContain('Your gold was not read');
+    expect(renderPlan(swordPlan())).not.toContain('Your wallet has');
+  });
+});

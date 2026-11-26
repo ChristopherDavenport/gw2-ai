@@ -280,6 +280,16 @@ function valueText(plan: CraftingPlan, solved: SolvedPlan, gold: number, scoped:
     : `Total value: **${coins(solved.fullCoin)}** ${priced}, including ${coins(owned)} of your own materials; ${coins(gold)} left to spend.`;
 }
 
+/** The gold in the wallet against what is left to spend; empty until holdings have been read. */
+function walletText(plan: CraftingPlan, gold: number): string {
+  if (!plan.holdings.fetchedAt || gold <= 0) return '';
+  const have = plan.holdings.wallet[1];
+  if (have === undefined) return 'Your gold was not read (the key needs `wallet`), so the shortfall is unknown. ';
+  return have >= gold
+    ? `Your wallet has ${coins(have)}: enough, with ${coins(have - gold)} to spare. `
+    : `Your wallet has ${coins(have)}: **${coins(gold - have)} short**. `;
+}
+
 /** What the open purchases would cost the other way: buy orders save gold and take time. */
 function orderNote(plan: CraftingPlan, open: PlanStep[]): string {
   const difference = open
@@ -321,7 +331,7 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
   const out = [
     `# Crafting plan: ${amount(plan.goal.quantity, plan.goal.name)}`,
     `${valueText(plan, solved, gold, scope !== '')} ` +
-      `${orderNote(plan, open)}${num(open.length)} steps open, ${num(research.length)} needing research. ` +
+      `${walletText(plan, gold)}${orderNote(plan, open)}${num(open.length)} steps open, ${num(research.length)} needing research. ` +
       (!planSettings(plan).useOwnMaterials
         ? 'Your own materials are not used.'
         : holdings.fetchedAt
