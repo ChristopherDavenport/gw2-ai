@@ -4,7 +4,7 @@ import { cell, coins, day, num, text } from './format.js';
 import { needsResearch } from './research.js';
 import { renderSales, type SalePlan } from './liquidate.js';
 
-export const PLAN_SECTIONS = ['decisions', 'gates', 'acquire', 'buy', 'vendor', 'make', 'covered', 'updating'] as const;
+export const PLAN_SECTIONS = ['goals', 'decisions', 'gates', 'acquire', 'buy', 'vendor', 'make', 'covered', 'updating'] as const;
 export type PlanSectionId = (typeof PLAN_SECTIONS)[number];
 
 export interface RenderPlanOptions {
@@ -15,6 +15,8 @@ export interface RenderPlanOptions {
    * (e.g. `Mystic Tribute`).
    */
   component?: string;
+  /** Show the plan for the first this many goals only, as if nothing else were planned. */
+  goals?: number;
   /** Sales to cover the gold shortfall, from salesForPlan, shown after the summary. */
   sales?: { plan: SalePlan; delivery?: number; notes?: readonly string[] };
 }
@@ -42,17 +44,28 @@ function sourceList(sources: readonly PlanSource[]): string {
     .join('');
 }
 
+/** What the vendors named on a step demand. Other vendors' demands don't apply to it. */
+function requirementText(step: PlanStep): string {
+  const shown = step.action === 'vendor' ? (step.route?.offer?.vendors.slice(0, NAMED_VENDORS) ?? []) : [];
+  // Older research holds bare strings with no vendor, which are left out.
+  const lines = (step.research?.requires ?? []).filter((r) => typeof r === 'object' && r !== null && shown.includes(r.vendor));
+  return lines.length ? `\n  - Vendor requirements: ${lines.map((r) => `${text(r.vendor)}: ${text(r.text)}`).join(' ')}` : '';
+}
+
 function researchText(step: PlanStep): string {
   const r = step.research;
   if (!r || step.note) return '';
   if (r.method) return `\n  - How: ${text(r.method)} (${cell(r.source)})`;
-  const requires = r.requires?.length ? `\n  - Vendor requirements: ${r.requires.map(text).join(' ')}` : '';
+  const requires = requirementText(step);
   // A vendor step's excerpt is only worth showing for the drops and containers in it.
   if (step.action === 'vendor' && !r.sources) return requires;
   const lead = step.action === 'vendor' ? 'Other ways to get it (choose `earn` to use one), from' : 'From';
   const body = r.sources ? sourceList(r.sources) : `\n\n${quoteExcerpt(r.text, '  ')}\n`;
   return `${requires}\n  - ${lead} ${cell(r.source)}:${body}`;
 }
+
+/** Vendors named per offer. */
+const NAMED_VENDORS = 2;
 
 /** Vendor offers listed per step; the route choices hold all of them. */
 const LISTED_OFFERS = 10;
@@ -69,6 +82,13 @@ function offerText(step: PlanStep): string {
   });
   if (offers.length > LISTED_OFFERS) lines.push(`    - and ${offers.length - LISTED_OFFERS} more`);
   return `\n  - ${step.action === 'vendor' ? 'Other prices' : 'Also sold by vendors'}:\n${lines.join('\n')}`;
+}
+
+/** Says when a step doesn't take its usual route. */
+function pickedText(step: PlanStep): string {
+  const usual = step.usual;
+  if (!usual || !step.route) return '';
+  return `\n  - Picked for what you hold and need, in place of: ${text(routeLabel(usual, [usual, step.route]))}`;
 }
 
 const box = (step: PlanStep) => `- [${step.count === 0 ? 'x' : ' '}]`;
@@ -110,6 +130,11 @@ function routeLabel(route: PlanRoute, all: readonly PlanRoute[], sources: readon
     const chests = sources.some((s) => s.name.includes("Hero's Choice")) ? ", or a Hero's Choice Chest" : '';
     return `collect it: ${names.slice(0, 3).join(', ')}${names.length > 3 ? ', …' : ''}${chests}`;
   }
+  if (route.pool) {
+    const { stacks, stack, label } = route.pool;
+    const fixed = route.inputs.slice(0, -1).map((i) => `${num(i.count)} × ${i.name}`);
+    return `Mystic Forge with ${[...fixed, `${num(stacks * stack)} × any ${label}`].join(', ')} (${route.output} per forge on average)`;
+  }
   const others = all.filter((r) => r !== route && r.inputs.length);
   const unique = route.inputs.filter((i) => !others.every((r) => r.inputs.some((o) => o.key === i.key)));
   // A vendor price is shown whole; recipes are told apart by what only they use.
@@ -127,6 +152,8 @@ export interface PlanChoice {
   selected: string;
   /** True while the route in use is only the default among recipes gold can't compare. */
   undecided: boolean;
+  /** True when the route in use was picked for what the player holds or the quantity needed. */
+  auto: boolean;
   /** Every route, in an order that doesn't change with the selection. Labels are plain text. */
   options: { value: string; label: string }[];
 }
@@ -143,13 +170,14 @@ export function planChoices(plan: CraftingPlan, solved: SolvedPlan = solvePlan(p
     const recipes = routes.filter((r) => r.action === 'craft' || r.action === 'forge');
     const otherSources = s.route.action === 'vendor' && s.research?.sources !== undefined;
     const alsoSold = s.route.action !== 'vendor' && routes.some((r) => r.action === 'vendor');
-    if (recipes.length < 2 && !otherSources && !alsoSold && plan.choices[s.key] === undefined) return [];
+    if (recipes.length < 2 && !otherSources && !alsoSold && !s.usual && plan.choices[s.key] === undefined) return [];
     return [
       {
         key: s.key,
         name: s.name,
         selected: s.route.key,
         undecided: s.undecided,
+        auto: s.usual !== undefined,
         // "Earn" only means something where there are drops or containers to use.
         options: routes
           .filter((r) => r.action !== 'earn' || s.research !== undefined || r.key === s.route!.key)
@@ -167,9 +195,8 @@ function decisions(choices: PlanChoice[]): string[] {
       const head = c.undecided
         ? `- **${text(c.name)}**: not chosen yet; gold can't compare these, and the plan assumes the one marked.`
         : `- **${text(c.name)}**`;
-      const lines = c.options.map(
-        (o) => `  - ${o.value === c.selected ? (c.undecided ? '(assumed) ' : '(chosen) ') : ''}${text(o.label)}`,
-      );
+      const mark = c.undecided ? '(assumed) ' : c.auto ? '(picked for you) ' : '(chosen) ';
+      const lines = c.options.map((o) => `  - ${o.value === c.selected ? mark : ''}${text(o.label)}`);
       return `${head}\n${lines.join('\n')}`;
     });
 }
@@ -208,7 +235,7 @@ function buy(steps: PlanStep[], plan: CraftingPlan): string[] {
       const order = other_ ? `; ${ordering ? 'buying at once' : 'by buy order'} ≈ ${coins(other_ * s.count)}` : '';
       const make = s.options.find((o) => o.action === 'craft' || o.action === 'forge');
       const other = make && !make.priced ? `\n  - Can also be made, at a cost gold can't compare: ${routeLabel(make, [make])}` : '';
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -217,23 +244,36 @@ function vendor(steps: PlanStep[]): string[] {
     .filter((s) => s.action === 'vendor')
     .map((s) => {
       const offer = s.route!.offer!;
-      const who = offer.vendors.slice(0, 2).map(text).join(' or ');
+      const who = offer.vendors.slice(0, NAMED_VENDORS).map(text).join(' or ');
       const caps = capText(s);
-      return `${box(s)} ${amount(s.count, s.name)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${pickedText(s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
 function makeLine(s: PlanStep): string {
   const verb = s.action === 'forge' ? 'Forge' : 'Craft';
   const recipe = s.route!.recipe!;
-  const how = s.route!.promotion
+  const pool = s.route!.pool;
+  const how = pool
+    ? `, about ${num(s.times)} forges at ${s.route!.output} each (yields are averages, so you may need more or fewer)`
+    : s.route!.promotion
     ? `, by promotion: about ${num(s.times)} forges at an average net gain of ${s.route!.output} (random; you need 1 × ${text(s.name)} to put in)`
     : s.action === 'forge'
       ? s.route!.output < 1
         ? `, about ${num(s.times)} forges at an average yield of ${s.route!.output} (random, so keep spares)`
         : ''
       : ` (${recipe.disciplines.join('/')} ${recipe.min_rating})`;
-  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${inputText(s)}${noteText(s)}${offerText(s)}`;
+  const used = pool ? poolText(s, pool) : inputText(s);
+  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${used}${pickedText(s)}${noteText(s)}${offerText(s)}`;
+}
+
+/** A pool forge's inputs: the fixed ones, then which items make up the pool's share. */
+function poolText(step: PlanStep, pool: NonNullable<PlanRoute['pool']>): string {
+  const list = (inputs: PlanStep['inputs']) => inputs.map((i) => amount(i.count, i.name)).join(', ');
+  const fixed = step.inputs.filter((i) => !pool.items.includes(i.key));
+  const mixed = step.inputs.filter((i) => pool.items.includes(i.key));
+  const total = mixed.reduce((sum, i) => sum + i.count, 0);
+  return `${list(fixed)}, and ${num(total)} × ${pool.label} (three stacks of ${pool.stack} per forge, any mix): ${list(mixed)}`;
 }
 
 /** Crafts and forges, inputs before outputs, grouped by the part of the goal. */
@@ -268,6 +308,7 @@ const UPDATING = `To change this plan, reply with a JSON update. Steps are named
   "undone": ["<step>"],
   "notes": { "<step>": { "text": "how to get it", "source": "<url>", "gate": "1 per day" } },
   "quantities": { "<something being made>": 0 },
+  "order": ["<make first>", "<then>"],
   "settings": { "useOwnMaterials": true, "dailyCrafts": true, "forgePromotions": false, "deductOwnedValue": true, "useBuyOrders": false }
 }
 \`\`\``;
@@ -316,8 +357,74 @@ function orderNote(plan: CraftingPlan, open: PlanStep[]): string {
     : `Placing buy orders instead would save about ${coins(difference)}. `;
 }
 
+/** Shortages listed per goal. */
+const LISTED_SHORTAGES = 8;
+
+/** What has to be earned, and the days limits add, by step key. */
+function shortages(solved: SolvedPlan): { earn: Map<StepKey, PlanStep>; days: Map<StepKey, number> } {
+  const earn = new Map<StepKey, PlanStep>();
+  const days = new Map<StepKey, number>();
+  for (const s of solved.steps) {
+    if (s.count === 0) continue;
+    if (s.action === 'earn') earn.set(s.key, s);
+    const waits = Math.max(
+      s.perDay ? Math.ceil(s.count / s.perDay) : 0,
+      s.caps?.daily ? Math.ceil(s.times / s.caps.daily) : 0,
+      s.caps?.weekly ? Math.ceil(s.times / s.caps.weekly) * 7 : 0,
+    );
+    if (waits > 1) days.set(s.key, waits);
+  }
+  return { earn, days };
+}
+
+/**
+ * Each goal in priority order, with what it adds to those above it. Goals share
+ * stock, so goal k is the plan for goals 1 to k less the one for 1 to k−1.
+ */
+function goalProgress(plan: CraftingPlan, all: SolvedPlan): string[] {
+  const wallet = plan.holdings.fetchedAt ? plan.holdings.wallet[1] : undefined;
+  let before = { coin: 0, ...shortages({ goals: [], steps: [], coin: 0, fullCoin: 0 }) };
+  const lines = plan.goals.map((goal, i) => {
+    const solved = i === plan.goals.length - 1 ? all : solvePlan({ ...plan, goals: plan.goals.slice(0, i + 1) });
+    const now = { coin: solved.coin, ...shortages(solved) };
+    const more = now.coin - before.coin;
+    const gold = more >= 0 ? `**${coins(more)}** more gold` : `**${coins(-more)}** less gold (it changes how shared things are got)`;
+    const against =
+      wallet === undefined
+        ? ''
+        : wallet >= now.coin
+          ? `; your wallet covers it, with ${coins(wallet - now.coin)} to spare`
+          : `; **${coins(now.coin - wallet)} short** of your wallet`;
+    const missing = [...now.earn.values()]
+      .map((s) => ({ s, count: s.count - (before.earn.get(s.key)?.count ?? 0) }))
+      .filter((m) => m.count > 0)
+      .sort((a, b) => Number(a.s.kind !== 'Currency') - Number(b.s.kind !== 'Currency') || a.s.name.localeCompare(b.s.name));
+    const listed = missing.slice(0, LISTED_SHORTAGES).map((m) => amount(m.count, m.s.name));
+    if (missing.length > LISTED_SHORTAGES) listed.push(`and ${num(missing.length - LISTED_SHORTAGES)} more`);
+    const names = new Map(solved.steps.map((s) => [s.key, s.name]));
+    const gates = [...now.days]
+      .map(([key, days]) => ({ key, days: days - (before.days.get(key) ?? 0) }))
+      .filter((g) => g.days > 0)
+      .sort((a, b) => b.days - a.days)
+      .slice(0, LISTED_SHORTAGES)
+      .map((g) => `${text(names.get(g.key) ?? g.key)} (${num(g.days)} days)`);
+    before = now;
+    return [
+      `${i + 1}. ${amount(goal.quantity, goal.name)}: ${gold}, ${coins(now.coin)} up to here${against}.`,
+      listed.length ? `   - Still to earn: ${listed.join(', ')}` : '',
+      gates.length ? `   - Waiting on daily or weekly limits: ${gates.join(', ')}` : '',
+    ]
+      .filter(Boolean)
+      .join('\n');
+  });
+  return ['Holdings and wallet go to earlier items first; each line is what that item adds to those above it.\n', ...lines];
+}
+
 /** Markdown for a plan: what to decide, what takes time, what to get and what to make. */
-export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}): string {
+export function renderPlan(whole: CraftingPlan, options: RenderPlanOptions = {}): string {
+  const first = options.goals === undefined ? whole.goals.length : Math.max(1, Math.floor(options.goals));
+  const cut = first < whole.goals.length;
+  const plan = cut ? { ...whole, goals: whole.goals.slice(0, first) } : whole;
   const solved = solvePlan(plan);
   const wanted = options.sections ?? PLAN_SECTIONS;
 
@@ -349,6 +456,7 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
         : holdings.fetchedAt
           ? `Holdings read ${day(holdings.fetchedAt)}.`
           : 'Account holdings are not counted.') +
+      (cut ? ` Showing only the first ${num(plan.goals.length)} of ${num(whole.goals.length)} things to make, as if nothing else were planned.` : '') +
       scope,
     `Settings: ${Object.entries(PLAN_SETTING_LABELS)
       .map(([key, label]) => {
@@ -362,6 +470,7 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
   ];
 
   const sections: Record<PlanSectionId, [string, () => string[]]> = {
+    goals: ['One at a time, in priority order', () => (plan.goals.length > 1 && !options.component ? goalProgress(plan, solved) : [])],
     decisions: [
       steps.some((s) => s.undecided) ? 'Decide first' : 'Recipe choices',
       () => decisions(planChoices(plan, { ...solved, steps })),

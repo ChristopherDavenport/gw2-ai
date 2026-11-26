@@ -27,6 +27,7 @@ const offers = await wiki.vendorOffers("Philosopher's Stone");
 const hits = await wiki.search('Twilight');
 const page = await wiki.page('Twilight', { intro: true });
 const how = await wiki.section('Mystic Coin', 'Acquisition');   // tables and lists as text lines, which page() drops; `omit` skips subsections
+const sold = await wiki.soldBy('Mystic Clover');                // vendor and notes of each row of the Sold by tables
 const rows = await wiki.ask('[[Has game id::19721]]|?Has context');
 ```
 

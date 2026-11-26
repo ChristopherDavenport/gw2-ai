@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RateLimiter } from '@gw2kit/client';
-import { updatePlan, type CraftingPlan } from '@gw2kit/recipes';
+import { parsePlan, updatePlan, type CraftingPlan } from '@gw2kit/recipes';
 import { WikiClient } from '@gw2kit/wiki';
 import { renderPlan, researchPlan, parseSources } from '../src/index.js';
 import { swordPlan } from './plan-fixture.js';
@@ -55,6 +55,37 @@ describe('researchPlan', () => {
     const noted = updatePlan(first.plan, { notes: { 'Desert Gift': { text: 'Meta' } } }).plan;
     expect((await researchPlan(noted, wiki({}))).plan.research).toEqual(first.plan.research);
     expect((await researchPlan(swordPlan(), wiki({}), { only: ['Nothing'] })).failed).toEqual(['nothing']);
+  });
+});
+
+describe('vendor requirements', () => {
+  const row = (vendor: string, notes: string) => `<tr><td><a href="/wiki/${vendor}" title="${vendor}">${vendor}</a></td><td>${notes}</td></tr>`;
+  const html = `<h2>Acquisition</h2><h3>Sold by</h3><table class="npc table"><tr><th>Vendor</th><th>Notes</th></tr>${[
+    row('A', 'Requires the mastery Gliding. Limit 1 per day.'),
+    row('B', 'Requires the festival Lunar New Year.'),
+    row('C', 'Requires the renown heart.'),
+    row('C', 'Limit 2 per week.'),
+  ].join('')}</table>`;
+
+  it('belong to a vendor, and only those of the vendors shown are printed', async () => {
+    const { plan } = await researchPlan(vendorPlan(), wiki({ 'Desert Gift': html }));
+    // C asks it on one of two offers only, so it can't be told which.
+    expect(plan.research?.i3?.requires).toEqual([
+      { vendor: 'A', text: 'Requires the mastery Gliding.' },
+      { vendor: 'B', text: 'Requires the festival Lunar New Year.' },
+    ]);
+    const md = renderPlan(plan, { sections: ['vendor'] });
+    expect(md).toContain('  - Vendor requirements: A: Requires the mastery Gliding.');
+    expect(md).not.toContain('Lunar New Year');
+  });
+
+  it('are dropped from research saved without vendors', () => {
+    const plan = vendorPlan();
+    const old = { text: 't', source: 's', requires: ['Requires the festival Lunar New Year.'] };
+    plan.research = { i3: old as unknown as NonNullable<CraftingPlan['research']>[string] };
+    const md = renderPlan(parsePlan(JSON.stringify(plan)), { sections: ['vendor'] });
+    expect(md).toContain('Desert Gift from A');
+    expect(md).not.toContain('Requires');
   });
 });
 

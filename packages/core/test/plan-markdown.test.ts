@@ -68,3 +68,33 @@ describe('gold on hand', () => {
     expect(renderPlan(swordPlan())).not.toContain('Your wallet has');
   });
 });
+
+describe('several goals', () => {
+  // Two rods, each forged from 10 bars at 100c and a token that can only be earned.
+  function rods() {
+    const plan = swordPlan();
+    const forge = (token: number) => [{ source: 'mystic-forge' as const, id: 0, disciplines: [], min_rating: 0, output_count: 1, ingredients: [{ type: 'Item' as const, id: 5, count: 10 }, { type: 'Item' as const, id: token, count: 1 }] }];
+    plan.data.recipes = { 1: forge(3), 2: forge(4) };
+    plan.goals = [{ itemId: 1, name: 'Sword', quantity: 1 }, { itemId: 2, name: 'Hilt', quantity: 1 }];
+    return withHoldings(plan, { items: { 5: 5 }, wallet: { 1: 700 }, fetchedAt: '2026-11-26T00:00:00.000Z' });
+  }
+
+  it('shows what each goal adds, in priority order, against the wallet', () => {
+    const md = renderPlan(rods());
+    expect(md).toContain('## One at a time, in priority order');
+    // The 5 held bars go to the first goal.
+    expect(md).toContain('1. 1 × Sword: **5s** more gold, 5s up to here; your wallet covers it, with 2s to spare.\n   - Still to earn: 1 × Desert Gift');
+    expect(md).toContain('2. 1 × Hilt: **10s** more gold, 15s up to here; **8s short** of your wallet.\n   - Still to earn: 1 × Jungle Gift');
+    const swapped = renderPlan(updatePlan(rods(), { order: ['Hilt'] }).plan);
+    expect(swapped).toContain('1. 1 × Hilt: **5s** more gold');
+  });
+
+  it('can show the plan for the first goals only', () => {
+    const md = renderPlan(rods(), { goals: 1 });
+    expect(md).toContain('# Crafting plan: 1 × Sword\n');
+    expect(md).toContain('first 1 of 2 things to make');
+    expect(md).not.toContain('Jungle Gift');
+    expect(md).not.toContain('## One at a time');
+    expect(renderPlan(swordPlan())).not.toContain('## One at a time');
+  });
+});

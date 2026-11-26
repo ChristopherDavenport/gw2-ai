@@ -47,6 +47,10 @@ describe('parsePlanUpdate', () => {
     const update = parsePlanUpdate('{"notes":{"a":{"text":"t","source":"x\\n## y","gate":"","extra":1},"b":null},"choose":{"c":null}}');
     expect(update).toEqual({ notes: { a: { text: 't', source: 'x ## y' }, b: null }, choose: { c: null } });
   });
+  it('reads a new priority order', () => {
+    expect(parsePlanUpdate('{"order":["Bolt","Twilight"]}')).toEqual({ order: ['Bolt', 'Twilight'] });
+  });
+
   it.each([
     ['', /first/],
     ['no json here', /No JSON update/],
@@ -63,6 +67,8 @@ describe('parsePlanUpdate', () => {
     ['{"quantities":{"a":"2"}}', /quantity of "a"/],
     ['{"quantities":{}}', /empty/],
     ['{"choose":["a"]}', /"choose" must be/],
+    ['{"order":"a"}', /"order" must be/],
+    ['{"order":[]}', /empty/],
     ['{"choose":{"a":1}}', /choice for "a"/],
     ['{"done":"a"}', /"done" must be/],
     ['{"undone":[1]}', /"undone" must be/],

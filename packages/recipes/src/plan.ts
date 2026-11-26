@@ -1,5 +1,6 @@
 import type { Gw2Client } from '@gw2kit/client';
 import type { VendorCaps } from '@gw2kit/wiki';
+import { decide, NO_DECISIONS, poolInputs, type Decisions } from './decide.js';
 import { addVendorOffers, fetchRecipeData, type FetchRecipeOptions, type RecipeData, type SourceRecipe, type TreeVendorOffer } from './tree.js';
 
 /**
@@ -15,7 +16,10 @@ export interface PlanGoal {
 
 export interface CraftingPlan {
   version: 2;
-  /** What is being made: at least one, each item once. */
+  /**
+   * What is being made: at least one, each item once, in priority order.
+   * Holdings and the wallet go to earlier goals first.
+   */
   goals: PlanGoal[];
   /** Every known route for every item reachable from the goals. */
   data: RecipeData;
@@ -74,8 +78,18 @@ export interface PlanResearch {
   sources?: PlanSource[];
   /** The whole answer when the wiki states one, e.g. `Completing the map Auric Basin.` */
   method?: string;
-  /** What vendors demand before selling, e.g. a mastery. */
-  requires?: string[];
+  /**
+   * What vendors demand before selling, e.g. a mastery, with the vendor each
+   * belongs to. Plans saved earlier hold bare strings, which can't be told
+   * apart and are ignored.
+   */
+  requires?: PlanRequirement[];
+}
+
+export interface PlanRequirement {
+  /** Wiki page title of the vendor, as in TreeVendorOffer.vendors. */
+  vendor: string;
+  text: string;
 }
 
 export interface PlanSource {
@@ -126,6 +140,11 @@ export interface PlanRoute {
   priced: boolean;
   /** A random Mystic Forge promotion; `output` is the average net gain. */
   promotion?: boolean;
+  /**
+   * The last of `inputs` stands for `stacks` stacks of `stack` units of any of
+   * `items`: it is the cheapest to buy. A step's inputs list what is really used.
+   */
+  pool?: { stacks: number; stack: number; label: string; items: StepKey[] };
 }
 
 export interface PlanStep {
@@ -150,6 +169,11 @@ export interface PlanStep {
   inputs: PlanInput[];
   /** Every other route this step could take. */
   options: PlanRoute[];
+  /**
+   * The default route, when `route` was picked over it for what the player
+   * holds: a vendor offer they can pay, or using materials they own.
+   */
+  usual?: PlanRoute;
   /** True when routes differ in ways gold can't compare and none was chosen. */
   undecided: boolean;
   /** Gold spent at this step itself: a TP purchase, or the coin part of a vendor purchase. */
@@ -219,7 +243,7 @@ export async function createPlan(
 ): Promise<CraftingPlan> {
   const wanted = typeof goals === 'number' ? [{ itemId: goals, quantity }] : goals;
   // Promotions are fetched so the setting can be flipped later without a rebuild.
-  const data = await fetchRecipeData(client, wanted.map((g) => g.itemId), { promotions: true, maxOffers: PLAN_OFFERS, ...options });
+  const data = await fetchRecipeData(client, wanted.map((g) => g.itemId), { promotions: true, pools: true, maxOffers: PLAN_OFFERS, ...options });
   const plan = planFromData(data, wanted);
   return options.otherOffers === false ? plan : addOtherOffers(client, plan, options);
 }
@@ -231,8 +255,9 @@ export interface CreatePlanOptions extends FetchRecipeOptions {
 
 /**
  * The plan with other places to buy looked up, for bound forge results and the
- * biggest purchases. It only adds routes to steps that have one, so no step or
- * total changes until the player picks one. Needs `options.wiki`.
+ * biggest purchases. It only adds routes to steps that have one: without
+ * holdings no step or total changes until the player picks one. Needs
+ * `options.wiki`.
  */
 export async function addOtherOffers(client: Gw2Client, plan: CraftingPlan, options: FetchRecipeOptions = {}): Promise<CraftingPlan> {
   if (!options.wiki || options.vendors === false) return plan;
@@ -331,7 +356,7 @@ export async function addGoal(
     const goals = plan.goals.map((g) => (g === existing ? { ...g, quantity: g.quantity + wholeNumber(quantity) } : g));
     return { ...plan, goals };
   }
-  const fetched = await fetchRecipeData(client, itemId, { promotions: true, maxOffers: PLAN_OFFERS, ...options });
+  const fetched = await fetchRecipeData(client, itemId, { promotions: true, pools: true, maxOffers: PLAN_OFFERS, ...options });
   const data = mergeData(plan.data, fetched);
   return {
     ...plan,
@@ -352,6 +377,7 @@ function mergeData(base: RecipeData, next: RecipeData): RecipeData {
     searched: [...new Set([...base.searched, ...next.searched])].sort((a, b) => a - b),
     recipes: { ...next.recipes, ...base.recipes },
     ...(base.promotions || next.promotions ? { promotions: { ...next.promotions, ...base.promotions } } : {}),
+    ...(base.pools || next.pools ? { pools: { ...next.pools, ...base.pools } } : {}),
     currencies: { ...base.currencies, ...next.currencies },
     guildUpgrades: { ...base.guildUpgrades, ...next.guildUpgrades },
     vendors: { ...next.vendors, ...base.vendors },
@@ -444,7 +470,7 @@ function distinct(recipes: readonly SourceRecipe[]): SourceRecipe[] {
   return [...out.values()];
 }
 
-interface Choice {
+export interface Choice {
   route: PlanRoute;
   options: PlanRoute[];
   undecided: boolean;
@@ -454,6 +480,23 @@ interface Choice {
  * Pick one route per step. A route is picked per item, not per occurrence, so
  * an intermediate used in several places is made the same way everywhere.
  */
+/** Whether a wiki recipe is one variant of a pool recipe, which covers it. */
+function inPool(recipe: SourceRecipe, pool: SourceRecipe): boolean {
+  if (recipe.source !== 'mystic-forge') return false;
+  const left = new Map<number, number>();
+  for (const i of recipe.ingredients) left.set(i.id, (left.get(i.id) ?? 0) + i.count);
+  for (const i of pool.ingredients) {
+    if ((left.get(i.id) ?? 0) < i.count) return false;
+    left.set(i.id, left.get(i.id)! - i.count);
+  }
+  let units = 0;
+  for (const [id, count] of left) {
+    if (count && !pool.pool!.items.includes(id)) return false;
+    units += count;
+  }
+  return units === pool.pool!.stacks * pool.pool!.stack;
+}
+
 function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
   const { data } = plan;
   const settings = planSettings(plan);
@@ -500,9 +543,13 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
     path.add(key);
     const made: PlanRoute[] = [];
     const promotions = settings.forgePromotions ? (data.promotions?.[id] ?? []) : [];
+    const pools = data.pools?.[id] ?? [];
     const recipes = [
-      ...distinct(data.recipes[id] ?? []).map((recipe) => ({ recipe, promotion: false })),
+      ...distinct(data.recipes[id] ?? [])
+        .filter((recipe) => !pools.some((p) => inPool(recipe, p)))
+        .map((recipe) => ({ recipe, promotion: false })),
       ...promotions.map((recipe) => ({ recipe, promotion: true })),
+      ...pools.map((recipe) => ({ recipe, promotion: false })),
     ];
     for (const { recipe, promotion } of recipes) {
       // A daily item the player doesn't want to craft, unless they chose this recipe for it.
@@ -511,12 +558,23 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
         const k = stepKey(i.type, i.id);
         return { key: k, name: nameOf(data, k), count: i.count };
       });
+      let pool: PlanRoute['pool'];
+      if (recipe.pool) {
+        const { stacks, stack, label, items } = recipe.pool;
+        const price = (item: number) => buyPrice(plan, item) ?? Infinity;
+        const cheapest = items.reduce((a, b) => (price(b) < price(a) ? b : a));
+        if (price(cheapest) === Infinity) continue;
+        const k = stepKey('Item', cheapest);
+        inputs.push({ key: k, name: nameOf(data, k), count: stacks * stack });
+        pool = { stacks, stack, label, items: items.map((item) => stepKey('Item', item)) };
+      }
       // Turning promotions on accepts that their stones cost Spirit Shards, not gold.
       const cost = priceInputs(inputs, recipe.output_count, promotion ? SPIRIT_SHARD_ITEMS : undefined);
       if (!cost) continue;
       const forge = recipe.source === 'mystic-forge';
       made.push({
-        key: forge ? forgeKey(recipe) : `craft:${recipe.id}`,
+        key: pool ? `${forgeKey(recipe)}+${pool.stacks * pool.stack}xany` : forge ? forgeKey(recipe) : `craft:${recipe.id}`,
+        ...(pool ? { pool } : {}),
         ...(promotion ? { promotion } : {}),
         action: forge ? 'forge' : 'craft',
         output: recipe.output_count,
@@ -565,21 +623,34 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
 /**
  * The steps still needed to finish the plan. Demand for each item is summed
  * across the whole graph before holdings are taken off and crafts are rounded
- * up. Pure: no requests.
+ * up. With holdings, routes the player didn't choose follow what they hold (see
+ * decide.ts), earlier goals first. Pure: no requests.
  */
 export function solvePlan(plan: CraftingPlan): SolvedPlan {
-  const solved = solveSteps(plan);
+  const { goals, steps, coin } = solveDecided(plan);
   const owns = planSettings(plan).useOwnMaterials && Object.keys(plan.holdings.items).length > 0;
-  const fullCoin = owns ? solveSteps({ ...plan, holdings: { ...plan.holdings, items: {} } }).coin : solved.coin;
-  return { ...solved, fullCoin };
+  const fullCoin = owns ? solveDecided({ ...plan, holdings: { ...plan.holdings, items: {} } }).coin : coin;
+  return { goals, steps, coin, fullCoin };
 }
 
-function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
+function solveDecided(plan: CraftingPlan): Solution {
+  const choose = chooseRoutes(plan);
+  const solve = (decisions: Decisions, skip?: ReadonlySet<StepKey>) => solveSteps(plan, choose, decisions, skip);
+  return solve(decide(plan, choose, solve));
+}
+
+/** One pass over the graph, with the demand each step key ended up with. */
+export interface Solution extends Omit<SolvedPlan, 'fullCoin'> {
+  demand: Map<StepKey, number>;
+}
+
+/** `skip`: steps whose inputs are left out of the demand, to see what everything else needs. */
+function solveSteps(plan: CraftingPlan, choose: (key: StepKey) => Choice, decisions: Decisions = NO_DECISIONS, skip?: ReadonlySet<StepKey>): Solution {
   const { data } = plan;
   const settings = planSettings(plan);
-  const choose = chooseRoutes(plan);
   const wanted = new Map(plan.goals.map((g) => [stepKey('Item', g.itemId), g.quantity]));
   const done = new Set(plan.done);
+  const routeOf = (key: StepKey) => decisions.routes.get(key) ?? choose(key).route;
 
   // Order the chosen graph so that every consumer precedes what it consumes.
   const postOrder: StepKey[] = [];
@@ -587,7 +658,9 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
   const visit = (key: StepKey): void => {
     if (state.has(key)) return;
     state.set(key, 'open');
-    for (const input of choose(key).route.inputs) visit(input.key);
+    for (const input of routeOf(key).inputs) visit(input.key);
+    const fill = decisions.fills.get(key);
+    if (fill) for (const input of [...fill.owned.map((o) => o.key), fill.buy]) visit(input);
     state.set(key, 'closed');
     postOrder.push(key);
   };
@@ -606,7 +679,9 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
       continue;
     }
     const { kind, id } = parseKey(key);
-    const { route, options, undecided } = choose(key);
+    const { route: usual, options, undecided } = choose(key);
+    const route = routeOf(key);
+    const picked = route.key !== usual.key;
     const isDone = done.has(key);
     const stock =
       kind === 'Item'
@@ -620,11 +695,12 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
     const owned = Math.min(stock, need - (wanted.get(key) ?? 0));
     const count = isDone ? 0 : need - owned;
     const times = count === 0 ? 0 : Math.max(1, Math.ceil(count / (route.output > 0 ? route.output : 1) - 1e-9));
-    const inputs = times === 0 ? [] : route.inputs.map((i) => ({ ...i, count: i.count * times }));
+    const inputs =
+      times === 0 ? [] : route.pool ? poolInputs(data, route, times, decisions.fills.get(key)) : route.inputs.map((i) => ({ ...i, count: i.count * times }));
 
     const mine = components.get(key) ?? new Set<StepKey>();
     for (const input of inputs) {
-      demand.set(input.key, (demand.get(input.key) ?? 0) + input.count);
+      if (!skip?.has(key)) demand.set(input.key, (demand.get(input.key) ?? 0) + input.count);
       const theirs = components.get(input.key) ?? new Set<StepKey>();
       if (wanted.has(key)) theirs.add(input.key);
       else for (const c of mine) theirs.add(c);
@@ -657,8 +733,9 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
       ...(count === 0 ? {} : { route }),
       times,
       inputs,
-      options,
-      undecided: undecided && count > 0,
+      options: picked ? [usual, ...options].filter((r) => r.key !== route.key) : options,
+      ...(picked && count > 0 ? { usual } : {}),
+      undecided: undecided && count > 0 && !picked,
       coin: stepCoin,
       bound: kind === 'Item' && data.items[id]?.bound === true,
       ...(caps && count > 0 ? { caps } : {}),
@@ -669,7 +746,7 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
       ...(plan.research?.[key] ? { research: plan.research[key] } : {}),
     });
   }
-  return { goals: plan.goals, steps, coin };
+  return { goals: plan.goals, steps, coin, demand };
 }
 
 // ---------------------------------------------------------------- updates
@@ -692,6 +769,11 @@ export interface PlanUpdate {
   settings?: Partial<PlanSettings>;
   /** Goal → new quantity; 0 removes it. Adding a goal needs its recipes: see addGoal. */
   quantities?: Record<string, number>;
+  /**
+   * Goals in their new priority order, served first. Goals left out keep their
+   * order after the listed ones.
+   */
+  order?: string[];
 }
 
 /** Apply `update`. Entries that don't match anything are reported, not applied. */
@@ -764,6 +846,18 @@ export function updatePlan(plan: CraftingPlan, update: PlanUpdate): { plan: Craf
     else if (!Number.isInteger(quantity) || quantity < 0) errors.push(`The quantity of "${ref}" must be a whole number, 0 to remove it.`);
     else if (quantity === 0 && goals.length === 1) errors.push('A plan needs at least one thing to make.');
     else goals = quantity === 0 ? goals.filter((g) => g !== goal) : goals.map((g) => (g === goal ? { ...g, quantity } : g));
+  }
+
+  if (update.order?.length) {
+    const first: PlanGoal[] = [];
+    for (const ref of update.order) {
+      const key = resolve(ref);
+      if (!key) continue;
+      const goal = goals.find((g) => stepKey('Item', g.itemId) === key);
+      if (!goal) errors.push(`"${ref}" is not something this plan makes.`);
+      else if (!first.includes(goal)) first.push(goal);
+    }
+    goals = [...first, ...goals.filter((g) => !first.includes(g))];
   }
 
   const settings = { ...plan.settings };

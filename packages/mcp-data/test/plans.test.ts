@@ -106,3 +106,15 @@ describe('plan tools', () => {
     expect((await loadPlan('grow', dir)).goals).toEqual([{ itemId: 2, name: 'Ore', quantity: 7 }]);
   });
 });
+
+describe('plan priority', () => {
+  it('reorders goals and shows the first ones only', async () => {
+    const plan = await loadPlan('gift-of-tests', dir);
+    plan.data.items[4] = { name: 'Other Thing', sell: 5 };
+    plan.goals = [...plan.goals, { itemId: 4, name: 'Other Thing', quantity: 1 }];
+    await savePlan('two-things', plan, dir);
+    const out = await planUpdate(client, wiki, 'two-things', { order: ['Other Thing'] }, dir);
+    expect(out).toContain('# Crafting plan: 1 × Other Thing + 2 × Gift of Tests');
+    expect(await planShow('two-things', { firstGoals: 1 }, dir)).toContain('# Crafting plan: 1 × Other Thing\n');
+  });
+});

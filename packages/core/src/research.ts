@@ -1,6 +1,6 @@
 import { mapLimit } from '@gw2kit/client';
-import { solvePlan, type CraftingPlan, type PlanResearch, type PlanSource, type PlanStep, type StepKey } from '@gw2kit/recipes';
-import { pageUrl, type WikiClient } from '@gw2kit/wiki';
+import { solvePlan, type CraftingPlan, type PlanRequirement, type PlanResearch, type PlanSource, type PlanStep, type StepKey } from '@gw2kit/recipes';
+import { pageUrl, type SoldByRow, type WikiClient } from '@gw2kit/wiki';
 
 const INTRO_CHARS = 300;
 const EXCERPT_CHARS = 900;
@@ -52,7 +52,22 @@ export const needsResearch = (step: PlanStep): boolean =>
 
 /** An Acquisition line that is the whole way to get the item. */
 const MAP_COMPLETION = /^- (Completing the map [^\n]+)$/m;
-const MAX_REQUIREMENTS = 4;
+const MAX_REQUIREMENTS = 3;
+const REQUIREMENT = /\bRequires .+?(?:\.(?=\s|$)|$)/g;
+
+/**
+ * What each vendor demands before selling. Only what every one of a vendor's
+ * rows says: a demand on one of several offers can't be matched to the offer.
+ */
+export function vendorRequirements(rows: readonly SoldByRow[]): PlanRequirement[] {
+  const byVendor = new Map<string, string[]>();
+  for (const { vendor, notes } of rows) {
+    const found = notes.match(REQUIREMENT)?.map((r) => r.trim()) ?? [];
+    const before = byVendor.get(vendor);
+    byVendor.set(vendor, before ? before.filter((r) => found.includes(r)) : [...new Set(found)]);
+  }
+  return [...byVendor].flatMap(([vendor, texts]) => texts.slice(0, MAX_REQUIREMENTS).map((text) => ({ vendor, text })));
+}
 
 /**
  * Vendor items that can't be bought from players: the wiki may list drops or
@@ -67,12 +82,8 @@ async function excerpt(
   always: boolean,
   intros: Map<string, string>,
 ): Promise<PlanResearch | 'none' | undefined> {
-  // The same page, read again with the vendor tables, for what they ask of the buyer.
-  const sold = await wiki.section(step.name, 'Acquisition', { maxChars: SECTION_CHARS });
-  const requires =
-    step.action === 'vendor'
-      ? [...new Set(sold?.text.match(/\bRequires [^|\n]+/g)?.map((r) => r.trim()))].slice(0, MAX_REQUIREMENTS)
-      : [];
+  // The vendor tables, for what each vendor asks of the buyer.
+  const requires = step.action === 'vendor' ? vendorRequirements(await wiki.soldBy(step.name)) : [];
   // Vendor offers are already in the graph, and their tables would crowd out the rest.
   const section = await wiki.section(step.name, 'Acquisition', { maxChars: SECTION_CHARS, omit: ['Sold by'] });
   if (!always && !requires.length && !(section && OTHER_SOURCES.test(section.text))) return 'none';

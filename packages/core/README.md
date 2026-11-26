@@ -15,8 +15,8 @@ console.log(report.markdown);
 
 Crafting plans (`CraftingPlan` from `@gw2kit/recipes`):
 
-- `renderPlan(plan, { sections, component, sales })`: markdown with open decisions, time gates, what to earn, buy and make, and what is covered. It ends with the JSON update block a model without tools can reply with. Wiki excerpts are quoted and escaped. A plan with several goals groups its crafts by the goal that needs them.
-- `researchPlan(plan, wiki, { only })`: adds the wiki intro and Acquisition text (without vendor tables) to steps with no known source, and to untradeable vendor items the wiki lists drops or containers for.
+- `renderPlan(plan, { sections, component, goals, sales })`: markdown with, for several goals, what each adds in priority order (the `goals` section; `goals: k` shows the plan for the first k only), open decisions, time gates, what to earn, buy and make, and what is covered. It ends with the JSON update block a model without tools can reply with. Wiki excerpts are quoted and escaped. A plan with several goals groups its crafts by the goal that needs them.
+- `researchPlan(plan, wiki, { only })`: adds the wiki intro and Acquisition text (without vendor tables) to steps with no known source, and to untradeable vendor items the wiki lists drops or containers for. Vendor requirements are kept with the vendor they belong to and printed only for the vendors a step names; research saved before this holds none that can be attributed, so rebuild the plan to see them.
 - `readHoldings(client, permissions)`: bank, shared slots, character bags, material storage and wallet, for `withHoldings`.
 - `@gw2-ai/core/plans` (Node only): `listPlans`, `loadPlan` and `savePlan` keep plans as JSON files in `$XDG_DATA_HOME/gw2-ai/plans/` (default `~/.local/share/gw2-ai/plans/`).
 

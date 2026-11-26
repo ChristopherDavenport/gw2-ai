@@ -571,11 +571,15 @@ textarea.update-input {
 .plan-goals input {
   width: 6em;
 }
+.plan-goal-actions {
+  display: flex;
+  gap: 0.25rem;
+}
 .plan-actions {
   margin-top: 8px;
 }
 @media (max-width: 520px) {
-  /* Quantity and Remove go together under the name; Add sits beside its quantity. */
+  /* Quantity and the buttons go under the name; Add sits beside its quantity. */
   .plan-goals li {
     display: grid;
     grid-template-columns: 32px auto minmax(0, 1fr);
@@ -586,7 +590,9 @@ textarea.update-input {
   .plan-goals li input {
     grid-column: 2;
   }
-  .plan-goals li button {
+  /* Their own row under the quantity: three buttons don't fit beside it. */
+  .plan-goal-actions {
+    grid-column: 2 / -1;
     justify-self: start;
   }
   #plan-form .row button {

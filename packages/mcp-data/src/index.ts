@@ -163,11 +163,23 @@ export function createServer(): McpServer {
       description:
         'Markdown of a saved crafting plan, or the list of saved plans when `plan` is omitted. Narrow long plans with `sections` ' +
         '(e.g. ["decisions","gates"]) or `component` (one part of the goal, as named in the "Make, in order" headings, e.g. "Mystic Tribute"). ' +
+        'With several goals, the "goals" section shows what each adds in priority order, and `first_goals` shows the plan for just the first ones. ' +
         'Prices are those of the last create or refresh. No API calls.',
-      inputSchema: { plan: planName.optional(), sections, component: z.string().min(1).max(200).optional() },
+      inputSchema: {
+        plan: planName.optional(),
+        sections,
+        component: z.string().min(1).max(200).optional(),
+        first_goals: z
+          .number()
+          .int()
+          .min(1)
+          .max(100)
+          .optional()
+          .describe('Show the plan for the first this many goals only, in priority order, as if nothing else were planned.'),
+      },
       annotations: READ_ONLY,
     },
-    ({ plan, sections, component }) => run(() => plans.planShow(plan, { sections, component })),
+    ({ plan, sections, component, first_goals }) => run(() => plans.planShow(plan, { sections, component, firstGoals: first_goals })),
   );
 
   server.registerTool(
@@ -187,6 +199,11 @@ export function createServer(): McpServer {
           .record(z.string(), z.number().int().min(0).max(10_000))
           .optional()
           .describe('Goal → new quantity; 0 removes it (a plan keeps at least one).'),
+        order: z
+          .array(z.string().max(200))
+          .max(100)
+          .optional()
+          .describe('Goals in priority order: holdings and wallet go to earlier ones first. Goals left out follow, as they were.'),
         choose: z
           .record(z.string(), z.string().max(200).nullable())
           .optional()
@@ -221,11 +238,12 @@ export function createServer(): McpServer {
       },
       annotations: WRITES_PLAN,
     },
-    ({ plan, add, quantities, choose, done, undone, notes, settings, refresh_prices, sections }) =>
+    ({ plan, add, quantities, order, choose, done, undone, notes, settings, refresh_prices, sections }) =>
       run(() =>
         plans.planUpdate(client, wiki, plan, {
           add: toGoals(add),
           quantities,
+          order,
           choose,
           done,
           undone,
