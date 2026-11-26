@@ -7,10 +7,17 @@ import { addVendorOffers, fetchRecipeData, type FetchRecipeOptions, type RecipeD
  * finished and learned. Plain JSON, with no I/O of its own, so a browser can
  * keep it in storage or a file. `solvePlan` derives the steps from it.
  */
+export interface PlanGoal {
+  itemId: number;
+  name: string;
+  quantity: number;
+}
+
 export interface CraftingPlan {
-  version: 1;
-  goal: { itemId: number; name: string; quantity: number };
-  /** Every known route for every item reachable from the goal. */
+  version: 2;
+  /** What is being made: at least one, each item once. */
+  goals: PlanGoal[];
+  /** Every known route for every item reachable from the goals. */
   data: RecipeData;
   /** Step key → route key (see PlanRoute.key). Absent: the default route. */
   choices: Record<string, string>;
@@ -153,15 +160,17 @@ export interface PlanStep {
   caps?: VendorCaps;
   /** Set when the item can be had only this many times a day. */
   perDay?: number;
-  /** The goal's direct inputs that need this step. */
+  /** The direct inputs of the goals that need this step. */
   components: StepKey[];
+  /** The goals that need this step, a goal itself included. */
+  goals: StepKey[];
   note?: PlanNote;
   research?: PlanResearch;
 }
 
 export interface SolvedPlan {
-  goal: CraftingPlan['goal'];
-  /** Goal first; every step comes before the steps it consumes. */
+  goals: PlanGoal[];
+  /** Every step comes before the steps it consumes. */
   steps: PlanStep[];
   /** Total gold still to spend, in copper. */
   coin: number;
@@ -199,13 +208,14 @@ const vendorCosts = (data: RecipeData) => Object.values(data.vendors).flatMap((v
 /** Fetch the graph for `quantity` of `itemId` and start an empty plan. */
 export async function createPlan(
   client: Gw2Client,
-  itemId: number,
+  goals: number | readonly { itemId: number; quantity?: number }[],
   quantity = 1,
   options: CreatePlanOptions = {},
 ): Promise<CraftingPlan> {
+  const wanted = typeof goals === 'number' ? [{ itemId: goals, quantity }] : goals;
   // Promotions are fetched so the setting can be flipped later without a rebuild.
-  const data = await fetchRecipeData(client, itemId, { promotions: true, maxOffers: PLAN_OFFERS, ...options });
-  const plan = planFromData(data, quantity);
+  const data = await fetchRecipeData(client, wanted.map((g) => g.itemId), { promotions: true, maxOffers: PLAN_OFFERS, ...options });
+  const plan = planFromData(data, wanted);
   return options.otherOffers === false ? plan : addOtherOffers(client, plan, options);
 }
 
@@ -236,7 +246,10 @@ export async function addOtherOffers(client: Gw2Client, plan: CraftingPlan, opti
  */
 export function mergeLookups(plan: CraftingPlan, extra: CraftingPlan): CraftingPlan {
   if (plan.data.rootId !== extra.data.rootId) return plan;
-  const offersFetchedAt = plan.data.offersFetchedAt ?? extra.data.offersFetchedAt;
+  // A copy from before a goal was added never looked up that goal's offers.
+  const covered = new Set(extra.goals.map((g) => g.itemId));
+  const offersFetchedAt =
+    plan.data.offersFetchedAt ?? (plan.goals.every((g) => covered.has(g.itemId)) ? extra.data.offersFetchedAt : undefined);
   const research = { ...extra.research, ...plan.research };
   return {
     ...plan,
@@ -261,7 +274,8 @@ const PRICIEST_BUYS = 8;
  * about: bound forge results (Mystic Clover) and the biggest purchases.
  */
 function worthAnotherRoute(plan: CraftingPlan): number[] {
-  const steps = solvePlan(plan).steps.filter((s) => s.kind === 'Item' && s.id !== plan.goal.itemId);
+  const goals = new Set(plan.goals.map((g) => g.itemId));
+  const steps = solvePlan(plan).steps.filter((s) => s.kind === 'Item' && !goals.has(s.id));
   const forged = steps.filter((s) => s.action === 'forge' && s.bound);
   const bought = steps.filter((s) => s.action === 'buy').sort((a, b) => b.coin - a.coin).slice(0, PRICIEST_BUYS);
   return [...forged, ...bought].map((s) => s.id);
@@ -274,15 +288,70 @@ export function buyPrice(plan: CraftingPlan, id: number): number | undefined {
   return planSettings(plan).useBuyOrders ? (item.buy ?? item.sell) : item.sell;
 }
 
-export function planFromData(data: RecipeData, quantity = 1): CraftingPlan {
+const wholeNumber = (n: number | undefined) => Math.max(1, Math.floor(n ?? 1));
+
+/** A new plan over fetched data: for its root item, or for the `goals` it was fetched for. */
+export function planFromData(
+  data: RecipeData,
+  goals: number | readonly { itemId: number; quantity?: number }[] = 1,
+): CraftingPlan {
+  const wanted = typeof goals === 'number' ? [{ itemId: data.rootId, quantity: goals }] : goals;
+  const quantities = new Map<number, number>();
+  for (const g of wanted) quantities.set(g.itemId, (quantities.get(g.itemId) ?? 0) + wholeNumber(g.quantity));
   return {
-    version: 1,
-    goal: { itemId: data.rootId, name: nameOf(data, stepKey('Item', data.rootId)), quantity: Math.max(1, Math.floor(quantity)) },
+    version: 2,
+    goals: [...quantities].map(([itemId, quantity]) => ({ itemId, name: nameOf(data, stepKey('Item', itemId)), quantity })),
     data,
     choices: {},
     done: [],
     notes: {},
     holdings: { items: {}, wallet: {} },
+  };
+}
+
+/**
+ * The plan with `quantity` more of `itemId` to make, its recipes fetched and
+ * added to the graph. Decisions and progress are kept. Run addOtherOffers
+ * afterwards for the new goal's vendor offers.
+ */
+export async function addGoal(
+  client: Gw2Client,
+  plan: CraftingPlan,
+  itemId: number,
+  quantity = 1,
+  options: FetchRecipeOptions = {},
+): Promise<CraftingPlan> {
+  const existing = plan.goals.find((g) => g.itemId === itemId);
+  if (existing) {
+    const goals = plan.goals.map((g) => (g === existing ? { ...g, quantity: g.quantity + wholeNumber(quantity) } : g));
+    return { ...plan, goals };
+  }
+  const fetched = await fetchRecipeData(client, itemId, { promotions: true, maxOffers: PLAN_OFFERS, ...options });
+  const data = mergeData(plan.data, fetched);
+  return {
+    ...plan,
+    data,
+    goals: [...plan.goals, { itemId, name: nameOf(data, stepKey('Item', itemId)), quantity: wholeNumber(quantity) }],
+  };
+}
+
+/** Two graphs as one; `next` has the newer prices. */
+function mergeData(base: RecipeData, next: RecipeData): RecipeData {
+  const { offersFetchedAt: _offers, ...kept } = base;
+  const worst = <T extends { status: string }>(a: T | undefined, b: T | undefined) => (a && a.status !== 'ok' ? a : (b ?? a));
+  const mysticForge = worst(base.status.mysticForge, next.status.mysticForge);
+  const vendors = worst(base.status.vendors, next.status.vendors);
+  return {
+    ...kept,
+    items: { ...base.items, ...next.items },
+    searched: [...new Set([...base.searched, ...next.searched])].sort((a, b) => a - b),
+    recipes: { ...next.recipes, ...base.recipes },
+    ...(base.promotions || next.promotions ? { promotions: { ...next.promotions, ...base.promotions } } : {}),
+    currencies: { ...base.currencies, ...next.currencies },
+    guildUpgrades: { ...base.guildUpgrades, ...next.guildUpgrades },
+    vendors: { ...next.vendors, ...base.vendors },
+    vendorUnmatched: [...new Set([...base.vendorUnmatched, ...next.vendorUnmatched])],
+    status: { ...(mysticForge ? { mysticForge } : {}), ...(vendors ? { vendors } : {}) },
   };
 }
 
@@ -307,13 +376,19 @@ export async function refreshPrices(client: Gw2Client, plan: CraftingPlan): Prom
 /** Check a value read back from storage or a file. Throws when it isn't a plan. */
 export function parsePlan(value: unknown): CraftingPlan {
   const isRecord = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
-  const p = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  let p = typeof value === 'string' ? (JSON.parse(value) as unknown) : value;
+  // Version 1 had a single `goal`.
+  if (isRecord(p) && p.version === 1 && isRecord(p.goal)) {
+    const { goal, ...rest } = p;
+    p = { ...rest, version: 2, goals: [goal] };
+  }
+  const isGoal = (g: unknown) => isRecord(g) && typeof g.itemId === 'number' && typeof g.quantity === 'number' && typeof g.name === 'string';
   if (
     !isRecord(p) ||
-    p.version !== 1 ||
-    !isRecord(p.goal) ||
-    typeof p.goal.itemId !== 'number' ||
-    typeof p.goal.quantity !== 'number' ||
+    p.version !== 2 ||
+    !Array.isArray(p.goals) ||
+    p.goals.length === 0 ||
+    !p.goals.every(isGoal) ||
     !isRecord(p.data) ||
     p.data.version !== 1 ||
     !isRecord(p.data.items) ||
@@ -324,7 +399,6 @@ export function parsePlan(value: unknown): CraftingPlan {
     !isRecord(p.data.status) ||
     !Array.isArray(p.data.vendorUnmatched) ||
     !Array.isArray(p.data.searched) ||
-    typeof p.goal.name !== 'string' ||
     !isRecord(p.choices) ||
     !Array.isArray(p.done) ||
     !isRecord(p.notes) ||
@@ -333,7 +407,7 @@ export function parsePlan(value: unknown): CraftingPlan {
     !isRecord(p.holdings.wallet) ||
     (p.settings !== undefined && !isRecord(p.settings))
   ) {
-    throw new Error('Not a version 1 crafting plan.');
+    throw new Error('Not a crafting plan.');
   }
   return p as unknown as CraftingPlan;
 }
@@ -378,7 +452,7 @@ interface Choice {
 function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
   const { data } = plan;
   const settings = planSettings(plan);
-  const goal = stepKey('Item', plan.goal.itemId);
+  const goals = new Set(plan.goals.map((g) => stepKey('Item', g.itemId)));
   const memo = new Map<StepKey, Choice>();
   const path = new Set<StepKey>();
 
@@ -427,7 +501,7 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
     ];
     for (const { recipe, promotion } of recipes) {
       // A daily item the player doesn't want to craft, unless they chose this recipe for it.
-      if (!settings.dailyCrafts && DAILY_ITEMS.has(id) && key !== goal && plan.choices[key] !== `craft:${recipe.id}`) continue;
+      if (!settings.dailyCrafts && DAILY_ITEMS.has(id) && !goals.has(key) && plan.choices[key] !== `craft:${recipe.id}`) continue;
       const inputs = recipe.ingredients.map((i) => {
         const k = stepKey(i.type, i.id);
         return { key: k, name: nameOf(data, k), count: i.count };
@@ -469,7 +543,7 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
     let undecided = false;
     // A chosen vendor for something tradeable is still compared at its price, so its parent stays made.
     if (picked) route = !picked.priced && sell !== undefined && picked.action === 'vendor' ? { ...picked, unitCost: sell, priced: true } : picked;
-    else if (key !== goal && buy) route = made[0]?.priced && made[0].unitCost < buy.unitCost ? made[0] : buy;
+    else if (!goals.has(key) && buy) route = made[0]?.priced && made[0].unitCost < buy.unitCost ? made[0] : buy;
     else {
       route = made[0] ?? vended[0] ?? buy ?? earn;
       undecided = made.length > 1 && !made[0]!.priced;
@@ -499,7 +573,7 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
   const { data } = plan;
   const settings = planSettings(plan);
   const choose = chooseRoutes(plan);
-  const goal = stepKey('Item', plan.goal.itemId);
+  const wanted = new Map(plan.goals.map((g) => [stepKey('Item', g.itemId), g.quantity]));
   const done = new Set(plan.done);
 
   // Order the chosen graph so that every consumer precedes what it consumes.
@@ -512,10 +586,11 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
     state.set(key, 'closed');
     postOrder.push(key);
   };
-  visit(goal);
+  for (const goal of wanted.keys()) visit(goal);
 
-  const demand = new Map<StepKey, number>([[goal, plan.goal.quantity]]);
+  const demand = new Map<StepKey, number>(wanted);
   const components = new Map<StepKey, Set<StepKey>>();
+  const neededBy = new Map<StepKey, Set<StepKey>>([...wanted.keys()].map((goal) => [goal, new Set([goal])]));
   const steps: PlanStep[] = [];
   let coin = 0;
   for (const key of postOrder.reverse()) {
@@ -528,18 +603,16 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
     const { kind, id } = parseKey(key);
     const { route, options, undecided } = choose(key);
     const isDone = done.has(key);
-    // The goal is what's being made, so copies already owned don't count.
     const stock =
-      key === goal
-        ? 0
-        : kind === 'Item'
+      kind === 'Item'
           ? settings.useOwnMaterials
             ? (plan.holdings.items[id] ?? 0)
             : 0
           : kind === 'Currency'
             ? (plan.holdings.wallet[id] ?? 0)
             : 0;
-    const owned = Math.min(stock, need);
+    // A goal is what's being made, so owned copies only cover other steps' use of it.
+    const owned = Math.min(stock, need - (wanted.get(key) ?? 0));
     const count = isDone ? 0 : need - owned;
     const times = count === 0 ? 0 : Math.max(1, Math.ceil(count / (route.output > 0 ? route.output : 1) - 1e-9));
     const inputs = times === 0 ? [] : route.inputs.map((i) => ({ ...i, count: i.count * times }));
@@ -548,9 +621,12 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
     for (const input of inputs) {
       demand.set(input.key, (demand.get(input.key) ?? 0) + input.count);
       const theirs = components.get(input.key) ?? new Set<StepKey>();
-      if (key === goal) theirs.add(input.key);
+      if (wanted.has(key)) theirs.add(input.key);
       else for (const c of mine) theirs.add(c);
       components.set(input.key, theirs);
+      const users = neededBy.get(input.key) ?? new Set<StepKey>();
+      for (const goal of neededBy.get(key) ?? []) users.add(goal);
+      neededBy.set(input.key, users);
     }
 
     const sell = kind === 'Item' ? buyPrice(plan, id) : undefined;
@@ -583,11 +659,12 @@ function solveSteps(plan: CraftingPlan): Omit<SolvedPlan, 'fullCoin'> {
       ...(caps && count > 0 ? { caps } : {}),
       ...(count > 0 && kind === 'Item' && DAILY_ITEMS.has(id) && (route.action === 'craft' || route.action === 'vendor') ? { perDay: 1 } : {}),
       components: [...mine],
+      goals: [...(neededBy.get(key) ?? [])],
       ...(note ? { note } : {}),
       ...(plan.research?.[key] ? { research: plan.research[key] } : {}),
     });
   }
-  return { goal: plan.goal, steps, coin };
+  return { goals: plan.goals, steps, coin };
 }
 
 // ---------------------------------------------------------------- updates
@@ -608,6 +685,8 @@ export interface PlanUpdate {
   /** Step → note, or null to remove it. */
   notes?: Record<string, PlanNote | null>;
   settings?: Partial<PlanSettings>;
+  /** Goal → new quantity; 0 removes it. Adding a goal needs its recipes: see addGoal. */
+  quantities?: Record<string, number>;
 }
 
 /** Apply `update`. Entries that don't match anything are reported, not applied. */
@@ -671,6 +750,17 @@ export function updatePlan(plan: CraftingPlan, update: PlanUpdate): { plan: Craf
     else if (typeof note.text === 'string') notes[key] = note;
     else errors.push(`The note for "${ref}" needs a "text".`);
   }
+  let goals = plan.goals;
+  for (const [ref, quantity] of Object.entries(update.quantities ?? {})) {
+    const key = resolve(ref);
+    if (!key) continue;
+    const goal = goals.find((g) => stepKey('Item', g.itemId) === key);
+    if (!goal) errors.push(`"${ref}" is not something this plan makes.`);
+    else if (!Number.isInteger(quantity) || quantity < 0) errors.push(`The quantity of "${ref}" must be a whole number, 0 to remove it.`);
+    else if (quantity === 0 && goals.length === 1) errors.push('A plan needs at least one thing to make.');
+    else goals = quantity === 0 ? goals.filter((g) => g !== goal) : goals.map((g) => (g === goal ? { ...g, quantity } : g));
+  }
+
   const settings = { ...plan.settings };
   for (const [name, value] of Object.entries(update.settings ?? {})) {
     if (!Object.hasOwn(DEFAULT_PLAN_SETTINGS, name)) errors.push(`No setting named "${name}". Settings: ${Object.keys(DEFAULT_PLAN_SETTINGS).join(', ')}.`);
@@ -681,7 +771,7 @@ export function updatePlan(plan: CraftingPlan, update: PlanUpdate): { plan: Craf
     }
   }
   return {
-    plan: { ...plan, choices, notes, done: [...done], ...(Object.keys(settings).length ? { settings } : {}) },
+    plan: { ...plan, goals, choices, notes, done: [...done], ...(Object.keys(settings).length ? { settings } : {}) },
     errors,
   };
 }

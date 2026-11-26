@@ -6,3 +6,6 @@ export * from './recipe-tree.js';
 export * from './plan-markdown.js';
 export { readHoldings } from './holdings.js';
 export { needsResearch, parseSources, researchPlan, type ResearchOptions } from './research.js';
+export * from './fees.js';
+export { planSales, readSellables, renderSales, type SaleLine, type SaleOptions, type SalePlan, type Sellable, type Sellables } from './liquidate.js';
+export { planReserve, planShortfall, salesForPlan } from './plan-sales.js';

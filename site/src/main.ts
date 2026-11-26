@@ -11,6 +11,7 @@ import { $, describeError, downloadText, el, setStatus, setupTabs } from './dom.
 import { reportFilename } from './filename.js';
 import { renderMarkdown } from './markdown.js';
 import { initPlanSection } from './plan-ui.js';
+import { initSalesSection } from './sales-ui.js';
 import * as vault from './vault.js';
 import './style.css';
 
@@ -51,7 +52,9 @@ let token: TokenInfo | undefined;
 let report: Report | undefined;
 let accountName = 'account';
 let generating = false;
-const planSection = initPlanSection({ cache, account: () => (client ? { client, token } : undefined) });
+const account = () => (client ? { client, token } : undefined);
+const planSection = initPlanSection({ cache, account });
+const salesSection = initSalesSection({ cache, account });
 
 // ---- Key handling ---------------------------------------------------------
 
@@ -73,6 +76,7 @@ function showKey(info: TokenInfo | undefined): void {
   renderSections();
   void loadCharacters();
   planSection.keyChanged();
+  salesSection.keyChanged();
 }
 
 function showKeyForm(): void {
@@ -82,6 +86,7 @@ function showKeyForm(): void {
   characterList.replaceChildren();
   setStatus(characterStatus, 'Add an API key to list your characters.');
   planSection.keyChanged();
+  salesSection.keyChanged();
 }
 
 keyForm.addEventListener('submit', (event) => {

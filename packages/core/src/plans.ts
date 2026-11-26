@@ -88,7 +88,7 @@ export async function savePlan(name: string, plan: CraftingPlan, dir = plansDir(
 export interface SavedPlan {
   name: string;
   /** Absent when the file can't be read as a plan. */
-  goal?: CraftingPlan['goal'];
+  goals?: CraftingPlan['goals'];
   /** ISO time the file was last written. */
   updatedAt: string;
 }
@@ -108,11 +108,11 @@ export async function listPlans(dir = plansDir()): Promise<SavedPlan[]> {
       .filter((name) => name.length <= MAX_NAME && NAME.test(name))
       .map(async (name): Promise<SavedPlan> => {
         const updatedAt = (await stat(planPath(name, dir))).mtime.toISOString();
-        const goal = await loadPlan(name, dir).then(
-          (p) => p.goal,
+        const goals = await loadPlan(name, dir).then(
+          (p) => p.goals,
           () => undefined,
         );
-        return { name, updatedAt, ...(goal ? { goal } : {}) };
+        return { name, updatedAt, ...(goals ? { goals } : {}) };
       }),
   );
   return plans.sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));

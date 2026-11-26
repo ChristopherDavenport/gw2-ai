@@ -19,9 +19,9 @@ Claude Code: `claude mcp add --scope user gw2-data -- npx -y @gw2-ai/mcp-data`, 
 - `gw2_prices`: buy/sell prices, spread, and flip profit after the 15% trading post fee.
 - `gw2_listings`: the order book for an item.
 - `gw2_recipe_tree`: the full crafting tree with the cheaper of crafting or buying at each step. Mystic Forge recipes (legendary weapons and gifts, clovers) and NPC vendor prices (Philosopher's Stone for Spirit Shards, Obsidian Shard for Karma) come from the wiki, so account-bound parts add up to wallet-currency totals.
-- `gw2_plan_create`: start a saved crafting plan for a large goal such as a legendary.
+- `gw2_plan_create`: start a saved crafting plan for one or several large goals, such as a legendary (`item_id` and `quantity`, or an `items` list).
 - `gw2_plan_show`: a plan as markdown (all of it, chosen sections or one component), or the list of saved plans.
-- `gw2_plan_update`: record recipe choices, finished steps, notes and plan settings (own materials, daily crafts, forge promotions, how value is shown); optionally refresh prices.
+- `gw2_plan_update`: add goals (`add`), change or remove them (`quantities`), record recipe choices, finished steps, notes and plan settings (own materials, daily crafts, forge promotions, how value is shown); optionally refresh prices.
 - `gw2_plan_research`: wiki intro and Acquisition section (without the vendor table) for named steps.
 - `gw2_recipes_using`: crafting and Mystic Forge recipes that use an item.
 - `gw2_gem_exchange`: gems to gold and gold to gems.
@@ -30,7 +30,7 @@ Claude Code: `claude mcp add --scope user gw2-data -- npx -y @gw2-ai/mcp-data`, 
 
 ## Crafting plans
 
-The loop for a model: create the plan; settle the "Decide first" items with the player; count holdings with `gw2_plan_holdings` on [`@gw2-ai/mcp-account`](https://www.npmjs.com/package/@gw2-ai/mcp-account); write notes for steps needing research from the wiki excerpts; then update as the player progresses. A model that was only given the pasted markdown can reply with the JSON update block at the bottom of the plan, whose fields `gw2_plan_update` takes as they are.
+The loop for a model: create the plan; settle the "Decide first" items with the player; count holdings with `gw2_plan_holdings` on [`@gw2-ai/mcp-account`](https://www.npmjs.com/package/@gw2-ai/mcp-account); write notes for steps needing research from the wiki excerpts; then update as the player progresses. A plan with several goals counts shared materials once; after adding a goal, count holdings again. To pay for what is left, use `gw2_raise_gold` on the account server. A model that was only given the pasted markdown can reply with the JSON update block at the bottom of the plan, whose fields `gw2_plan_update` takes as they are.
 
 Plans are JSON files in `~/.local/share/gw2-ai/plans/` (`$XDG_DATA_HOME/gw2-ai/plans/` if set). The `gw2_plan_*` tools are the only ones here that write anything.
 

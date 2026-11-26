@@ -274,6 +274,7 @@ code {
 }
 
 fieldset {
+  min-width: 0;
   border: none;
   margin: 0 0 16px;
   padding: 0;
@@ -530,4 +531,58 @@ textarea.update-input {
 .plan-settings label {
   display: inline-block;
   margin: 0 1.5rem 0.5rem 0;
+}
+
+#plan-goal-rows .row,
+#plan-goal-another {
+  margin-bottom: 8px;
+}
+
+.plan-goals ul {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.plan-goals li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.5rem;
+  margin-bottom: 0.5rem;
+}
+.plan-goals li label {
+  flex: 1 1 12rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.plan-goals input {
+  width: 6em;
+}
+
+.sale-controls {
+  display: grid;
+  grid-template-columns: minmax(8rem, max-content) minmax(0, 24rem);
+  align-items: center;
+  gap: 0.5rem 1rem;
+  margin: 8px 0;
+}
+.sale-controls textarea.update-input {
+  margin: 0;
+}
+.check {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+  margin-bottom: 8px;
+}
+@media (max-width: 520px) {
+  .sale-controls {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.25rem;
+  }
+}
+
+select {
+  font: inherit;
+  max-width: 100%;
 }

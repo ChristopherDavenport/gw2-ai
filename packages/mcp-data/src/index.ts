@@ -121,6 +121,10 @@ export function createServer(): McpServer {
   );
 
   const planName = z.string().min(1).max(80).describe('Saved plan name, e.g. "twilight".');
+  const quantity = z.number().int().min(1).max(10_000).default(1);
+  const goalList = z.array(z.object({ item_id: itemId, quantity })).min(1).max(20);
+  const toGoals = (list: { item_id: number; quantity: number }[] | undefined) =>
+    list?.map((g) => ({ itemId: g.item_id, quantity: g.quantity }));
   const sections = z
     .array(z.enum(PLAN_SECTIONS))
     .optional()
@@ -131,23 +135,25 @@ export function createServer(): McpServer {
     {
       title: 'Start a crafting plan',
       description:
-        'Build a saved, step-by-step crafting plan for a large goal (a legendary, a gift) and return it as markdown: open recipe decisions, time gates, ' +
+        'Build a saved, step-by-step crafting plan for one or several large goals (a legendary, a set of gifts) and return it as markdown: open recipe decisions, time gates, ' +
         'what to earn, buy and make, and wiki excerpts for steps with no known source (and for untradeable vendor items the wiki lists other sources for). Use this instead of gw2_recipe_tree when the player will work on the goal over time. ' +
+        'Pass `item_id` for one goal, or `items` for several made together: materials they share are counted once, in one list. ' +
         'Then follow the loop: (1) answer the "Decide first" items with the player and record them with gw2_plan_update; ' +
         '(2) count what they own with gw2_plan_holdings on gw2-account (needs a key); ' +
         '(3) for steps marked "needs research", write short notes from the excerpts (gw2_plan_update notes), never from memory; ' +
         '(4) as the player progresses, mark steps done with gw2_plan_update and sync holdings again. ' +
         'Cost: that of gw2_recipe_tree plus a few wiki calls per step looked up (a legendary takes 10-90 s).',
       inputSchema: {
-        item_id: itemId,
-        quantity: z.number().int().min(1).max(10_000).default(1),
-        name: z.string().min(1).max(80).optional().describe('Plan name (lowercase, hyphens). Default: from the item name.'),
+        item_id: itemId.optional().describe('The one thing to make; or use `items`.'),
+        quantity: quantity.describe('How many of `item_id`.'),
+        items: goalList.optional().describe('Several things to make, e.g. [{"item_id": 30704}, {"item_id": 19675, "quantity": 77}].'),
+        name: z.string().min(1).max(80).optional().describe('Plan name (lowercase, hyphens). Default: from the item names.'),
         replace: z.boolean().default(false).describe('Overwrite a saved plan of the same name, losing its choices, notes and progress.'),
       },
       annotations: { ...WRITES_PLAN, destructiveHint: true },
     },
-    ({ item_id, quantity, name, replace }) =>
-      run(() => plans.planCreate(client, wiki, { itemId: item_id, quantity, name, replace })),
+    ({ item_id, quantity, items, name, replace }) =>
+      run(() => plans.planCreate(client, wiki, { itemId: item_id, quantity, items: toGoals(items), name, replace })),
   );
 
   server.registerTool(
@@ -169,12 +175,18 @@ export function createServer(): McpServer {
     {
       title: 'Update a crafting plan',
       description:
-        'Record decisions, progress and notes in a saved plan. Steps are named as the plan writes them (or by key such as "i19976"). ' +
+        'Record decisions, progress and notes in a saved plan, and change what it makes. Steps are named as the plan writes them (or by key such as "i19976"). ' +
         'A model that was only given the pasted plan replies with a JSON block of these same fields, which can be passed here as is. ' +
         'Returns what could not be applied, then the summary and open decisions (or the `sections` asked for). ' +
-        'New steps with no known source get wiki excerpts. Cost: none, unless prices are refreshed or excerpts are needed.',
+        'New steps with no known source get wiki excerpts. Cost: none, unless goals are added, prices are refreshed or excerpts are needed ' +
+        '(adding a goal costs about what creating a plan for it does).',
       inputSchema: {
         plan: planName,
+        add: goalList.optional().describe('More to make: a new goal, or that many more of one the plan already has.'),
+        quantities: z
+          .record(z.string(), z.number().int().min(0).max(10_000))
+          .optional()
+          .describe('Goal → new quantity; 0 removes it (a plan keeps at least one).'),
         choose: z
           .record(z.string(), z.string().max(200).nullable())
           .optional()
@@ -209,8 +221,20 @@ export function createServer(): McpServer {
       },
       annotations: WRITES_PLAN,
     },
-    ({ plan, choose, done, undone, notes, settings, refresh_prices, sections }) =>
-      run(() => plans.planUpdate(client, wiki, plan, { choose, done, undone, notes, settings, refreshPrices: refresh_prices, sections })),
+    ({ plan, add, quantities, choose, done, undone, notes, settings, refresh_prices, sections }) =>
+      run(() =>
+        plans.planUpdate(client, wiki, plan, {
+          add: toGoals(add),
+          quantities,
+          choose,
+          done,
+          undone,
+          notes,
+          settings,
+          refreshPrices: refresh_prices,
+          sections,
+        }),
+      ),
   );
 
   server.registerTool(

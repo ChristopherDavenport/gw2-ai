@@ -20,7 +20,25 @@ Claude Code: `claude mcp add --scope user gw2-account -- npx -y @gw2-ai/mcp-acco
 - `gw2_character`: one character in detail: every build template (trait and skill names) and equipment template (stats, runes, sigils, infusions, PvP gear) with the active ones marked, crafting, bags. `templates: "active"` limits it to the templates in use.
 - `gw2_shopping_list`: a crafting tree for an item minus what the account already holds, with the rest priced.
 - `gw2_plan_holdings`: count what the account holds toward a saved crafting plan (made with `gw2_plan_create` on [`@gw2-ai/mcp-data`](https://www.npmjs.com/package/@gw2-ai/mcp-data); both use the files in `~/.local/share/gw2-ai/plans/`, or under `$XDG_DATA_HOME`). It changes only the local plan file, never the account.
+- `gw2_raise_gold`: what to sell to raise gold (see below).
 - `gw2_account_get`: raw JSON from any authenticated account route (allowlisted paths only).
+
+## Raising gold
+
+`gw2_raise_gold` lists what to sell, how many and how, from material storage, the bank, shared slots and character bags, after the 15% trading post fee. It never sells anything: the API is read-only.
+
+| Argument | Meaning |
+| --- | --- |
+| `target_gold` | Gold to raise. Without it, everything sellable is listed, or with `plan`, the plan's shortfall. |
+| `plan` | A saved plan: its holdings are read again and saved, and the materials it uses are held back. |
+| `method` | `instant` (default): sell to buy orders. `list`: list at the lowest price and wait. |
+| `order` | `least-loss` (default): sell first what keeps most of its listing value. `fewest`: fewer, larger sales. |
+| `keep` | Item names or ids never to sell. |
+| `everything` | Also gear, consumables and other non-materials. |
+
+Needs `inventories`. `characters` adds character bags, `tradingpost` the coins waiting in the delivery box, and `wallet` is needed to work out a plan's shortfall.
+
+Sales are one step only: nothing is refined, salvaged or converted from currencies first. Listed sales are not guaranteed to happen. Bound items, equipped gear and guild storage are never considered, and Legendary and Ascended items are never suggested. With `plan`, other saved plans' materials are not held back.
 
 ## API key
 

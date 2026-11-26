@@ -2,6 +2,7 @@ import { pageUrl, type VendorCaps } from '@gw2kit/wiki';
 import { buyPrice, planSettings, solvePlan, type CraftingPlan, type PlanRoute, type PlanSettings, type PlanSource, type PlanStep, type SolvedPlan, type StepKey } from '@gw2kit/recipes';
 import { cell, coins, day, num, text } from './format.js';
 import { needsResearch } from './research.js';
+import { renderSales, type SalePlan } from './liquidate.js';
 
 export const PLAN_SECTIONS = ['decisions', 'gates', 'acquire', 'buy', 'vendor', 'make', 'covered', 'updating'] as const;
 export type PlanSectionId = (typeof PLAN_SECTIONS)[number];
@@ -14,6 +15,8 @@ export interface RenderPlanOptions {
    * (e.g. `Mystic Tribute`).
    */
   component?: string;
+  /** Sales to cover the gold shortfall, from salesForPlan, shown after the summary. */
+  sales?: { plan: SalePlan; delivery?: number; notes?: readonly string[] };
 }
 
 /** Wiki excerpt, quoted and escaped: it is untrusted text a model will read. */
@@ -235,16 +238,24 @@ function makeLine(s: PlanStep): string {
 
 /** Crafts and forges, inputs before outputs, grouped by the part of the goal. */
 function make(solved: SolvedPlan): string[] {
-  const goal = `i${solved.goal.itemId}`;
+  const goals = new Set(solved.goals.map((g) => `i${g.itemId}`));
+  const several = goals.size > 1;
   const names = new Map(solved.steps.map((s) => [s.key, s.name]));
   const groups = new Map<string, string[]>();
   for (const s of [...solved.steps].reverse()) {
     if (s.action !== 'craft' && s.action !== 'forge') continue;
-    const title =
-      s.key === goal ? 'Finish' : s.components.length === 1 ? text(names.get(s.components[0]!) ?? 'Other') : 'Shared by several parts';
+    // One goal: group by its parts. Several: by the goal that needs them.
+    const owners = several ? s.goals : s.components;
+    const title = goals.has(s.key)
+      ? 'Finish'
+      : owners.length === 1
+        ? text(names.get(owners[0]!) ?? 'Other')
+        : several
+          ? 'Shared between goals'
+          : 'Shared by several parts';
     (groups.get(title) ?? groups.set(title, []).get(title)!).push(makeLine(s));
   }
-  const rank = (title: string) => (title === 'Shared by several parts' ? 0 : title === 'Finish' ? 2 : 1);
+  const rank = (title: string) => (title.startsWith('Shared ') ? 0 : title === 'Finish' ? 2 : 1);
   return [...groups].sort(([a], [b]) => rank(a) - rank(b)).map(([title, lines]) => `### ${title}\n\n${lines.join('\n')}`);
 }
 
@@ -256,6 +267,7 @@ const UPDATING = `To change this plan, reply with a JSON update. Steps are named
   "done": ["<step>"],
   "undone": ["<step>"],
   "notes": { "<step>": { "text": "how to get it", "source": "<url>", "gate": "1 per day" } },
+  "quantities": { "<something being made>": 0 },
   "settings": { "useOwnMaterials": true, "dailyCrafts": true, "forgePromotions": false, "deductOwnedValue": true, "useBuyOrders": false }
 }
 \`\`\``;
@@ -315,7 +327,7 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
     const name = options.component.trim().toLowerCase();
     const part = steps.find((s) => s.name.toLowerCase() === name);
     if (!part) return `No step named "${text(options.component)}" in this plan.`;
-    steps = steps.filter((s) => s.key === part.key || s.components.includes(part.key));
+    steps = steps.filter((s) => s.key === part.key || s.components.includes(part.key) || s.goals.includes(part.key));
     scope = ` Showing only what ${text(part.name)} needs; counts include other parts' demand.`;
   }
 
@@ -329,7 +341,7 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
   ].filter(Boolean);
 
   const out = [
-    `# Crafting plan: ${amount(plan.goal.quantity, plan.goal.name)}`,
+    `# Crafting plan: ${plan.goals.map((g) => amount(g.quantity, g.name)).join(' + ')}`,
     `${valueText(plan, solved, gold, scope !== '')} ` +
       `${walletText(plan, gold)}${orderNote(plan, open)}${num(open.length)} steps open, ${num(research.length)} needing research. ` +
       (!planSettings(plan).useOwnMaterials
@@ -365,6 +377,12 @@ export function renderPlan(plan: CraftingPlan, options: RenderPlanOptions = {}):
     ],
     updating: ['Updating this plan', () => [UPDATING]],
   };
+  if (options.sales) {
+    const { plan: sales, delivery, notes } = options.sales;
+    out.push(
+      renderSales(sales, { heading: 'Raise the gold from spare materials', ...(delivery ? { delivery } : {}), ...(notes ? { notes } : {}) }),
+    );
+  }
   for (const id of PLAN_SECTIONS) {
     if (!wanted.includes(id)) continue;
     const [title, lines] = sections[id];

@@ -5,7 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta name="referrer" content="no-referrer" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="description" content="Turn your Guild Wars 2 account into a markdown report you can hand to an AI assistant. Runs entirely in your browser." />
+    <meta name="description" content="Guild Wars 2 account reports, crafting plans and what to sell, as markdown you can hand to an AI assistant. Runs entirely in your browser." />
     <title>GW2 account report for AI</title>
     <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
     <script type="module" src="/src/main.ts"></script>
@@ -16,8 +16,9 @@
       <div class="wrap">
         <h1>GW2 account report for AI</h1>
         <p class="lede">
-          Paste a Guild Wars 2 API key, pick what to include, and get a markdown summary of your account to give to an AI
-          assistant. Everything runs in this page: your key is sent only to api.guildwars2.com.
+          Get markdown to give to an AI assistant: a summary of your Guild Wars 2 account, a plan for what you want to
+          craft, or a list of what to sell to raise gold. Everything runs in this page: your key is sent only to
+          api.guildwars2.com.
         </p>
       </div>
     </header>
@@ -123,16 +124,22 @@
       <section class="card" aria-labelledby="plan-heading">
         <h2 id="plan-heading">Crafting plan</h2>
         <p class="hint">
-          Pick something to make and get the steps as markdown for an AI assistant, then paste its changes back. No API
-          key is needed; with one that has the
+          Pick one or more things to make and get the steps as markdown for an AI assistant, then paste its changes back.
+          No API key is needed; with one that has the
           inventories permission, tick “Use my own materials” to count what you already own. The plan, holdings included, is saved in this
           browser and in its .json download. Forgetting the key removes the holdings from the saved plan.
         </p>
         <form id="plan-form" novalidate>
+          <div id="plan-goal-rows">
+            <div class="row goal-row">
+              <input id="plan-goal" class="goal-name" type="text" autocomplete="off" spellcheck="false" aria-label="Item name or id" placeholder="Exact item name or id, e.g. Exordium" />
+              <input id="plan-quantity" class="goal-quantity" type="number" min="1" max="10000" step="1" value="1" aria-label="Quantity" />
+            </div>
+          </div>
+          <button type="button" id="plan-goal-another" class="link">Add another item</button>
           <div class="row">
-            <input id="plan-goal" type="text" autocomplete="off" spellcheck="false" aria-label="Item name or id" placeholder="Exact item name or id, e.g. Exordium" />
-            <input id="plan-quantity" type="number" min="1" max="10000" step="1" value="1" aria-label="Quantity" />
             <button type="submit" id="plan-build" class="primary">Build plan</button>
+            <button type="button" id="plan-add" hidden>Add to plan</button>
             <button type="button" id="plan-load">Load .json</button>
             <input id="plan-file" type="file" accept=".json,application/json" hidden />
           </div>
@@ -149,10 +156,36 @@
             <button type="button" id="plan-prices">Refresh prices</button>
           </div>
           <p id="plan-copy-status" class="status" role="status" aria-live="polite"></p>
+          <fieldset id="plan-goals" class="plan-goals" hidden>
+            <legend>Making</legend>
+            <ul id="plan-goal-list"></ul>
+          </fieldset>
           <fieldset id="plan-settings" class="plan-settings">
             <legend>Options</legend>
             <div id="plan-setting-list"></div>
             <p id="plan-holdings-hint" class="hint"></p>
+          </fieldset>
+          <fieldset id="plan-sales" hidden>
+            <legend>Gold shortfall</legend>
+            <label class="check"><input type="checkbox" id="plan-sales-on" /> Cover the gold shortfall by selling spare materials</label>
+            <div id="plan-sales-controls" hidden>
+            <div class="sale-controls">
+              <label for="plan-sales-method">Method</label>
+              <select id="plan-sales-method">
+                <option value="instant">Sell at once, to buy orders</option>
+                <option value="list">List at the lowest price and wait</option>
+              </select>
+              <label for="plan-sales-order">Order</label>
+              <select id="plan-sales-order">
+                <option value="least-loss">Least value lost first</option>
+                <option value="fewest">Fewest sales</option>
+              </select>
+              <label for="plan-sales-keep">Items to keep</label>
+              <textarea id="plan-sales-keep" class="update-input" rows="3" spellcheck="false" placeholder="One name or id per line"></textarea>
+            </div>
+            <label class="check"><input type="checkbox" id="plan-sales-everything" /> Include gear and consumables</label>
+            </div>
+            <p id="plan-sales-hint" class="hint" role="status" aria-live="polite"></p>
           </fieldset>
           <fieldset id="plan-choices" class="plan-choices" hidden>
             <legend>Recipes and routes</legend>
@@ -178,6 +211,56 @@
           </form>
           <p id="plan-update-status" class="status" role="status" aria-live="polite"></p>
           <ul id="plan-update-errors" class="update-errors"></ul>
+        </div>
+      </section>
+
+      <section class="card" aria-labelledby="sales-heading">
+        <h2 id="sales-heading">Raise gold</h2>
+        <p class="hint">
+          Find what to sell from your material storage, bank and bags, as a markdown checklist. Needs a saved key with the
+          inventories permission; characters adds bags and tradingpost checks the delivery box. Bound items, Ascended and
+          Legendary items and equipped gear are never listed. What is read is not saved with your plan.
+        </p>
+        <p id="sales-key-hint" class="hint"></p>
+        <form id="sales-form" novalidate>
+          <div class="sale-controls">
+            <label for="sales-target">Gold target</label>
+            <input id="sales-target" type="text" inputmode="decimal" autocomplete="off" placeholder="Blank lists everything" />
+          </div>
+            <div class="sale-controls">
+              <label for="sales-method">Method</label>
+              <select id="sales-method">
+                <option value="instant">Sell at once, to buy orders</option>
+                <option value="list">List at the lowest price and wait</option>
+              </select>
+              <label for="sales-order">Order</label>
+              <select id="sales-order">
+                <option value="least-loss">Least value lost first</option>
+                <option value="fewest">Fewest sales</option>
+              </select>
+              <label for="sales-keep">Items to keep</label>
+              <textarea id="sales-keep" class="update-input" rows="3" spellcheck="false" placeholder="One name or id per line"></textarea>
+            </div>
+            <label class="check"><input type="checkbox" id="sales-everything" /> Include gear and consumables</label>
+          <button type="submit" id="sales-find" class="primary" disabled>Find sales</button>
+        </form>
+        <p id="sales-status" class="status" role="status" aria-live="polite"></p>
+
+        <div id="sales-output" hidden>
+          <div class="toolbar">
+            <button type="button" id="sales-copy" class="primary">Copy markdown</button>
+            <button type="button" id="sales-download">Download .md</button>
+            <span id="sales-copy-status" class="status" role="status" aria-live="polite"></span>
+          </div>
+          <div class="tabs" role="tablist" aria-label="Sales view">
+            <button type="button" role="tab" id="sales-tab-raw" aria-controls="sales-panel-raw" aria-selected="true">Markdown</button>
+            <button type="button" role="tab" id="sales-tab-preview" aria-controls="sales-panel-preview" aria-selected="false" tabindex="-1">Preview</button>
+          </div>
+          <div id="sales-panel-raw" role="tabpanel" aria-labelledby="sales-tab-raw">
+            <label for="sales-raw" class="visually-hidden">Sales markdown</label>
+            <textarea id="sales-raw" class="markdown-source" readonly spellcheck="false"></textarea>
+          </div>
+          <div id="sales-panel-preview" role="tabpanel" aria-labelledby="sales-tab-preview" class="preview" tabindex="0" hidden></div>
         </div>
       </section>
     </main>

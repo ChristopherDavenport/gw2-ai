@@ -249,9 +249,17 @@ export async function buildRecipeTree(
  * no bulk search). With `options.wiki`, also Mystic Forge recipes, and NPC vendor offers for items with no recipe and no
  * trading post listing.
  */
-export async function fetchRecipeData(client: Gw2Client, itemId: number, options: FetchRecipeOptions = {}): Promise<RecipeData> {
+export async function fetchRecipeData(
+  client: Gw2Client,
+  itemIds: number | readonly number[],
+  options: FetchRecipeOptions = {},
+): Promise<RecipeData> {
+  // Several roots share one graph, so what they have in common is fetched once.
+  const roots = [...new Set(typeof itemIds === 'number' ? [itemIds] : itemIds)];
+  const itemId = roots[0];
+  if (itemId === undefined) throw new Error('No item to fetch recipes for.');
   const maxDepth = options.maxDepth ?? 10;
-  const maxItems = options.maxItems ?? 600;
+  const maxItems = (options.maxItems ?? 600) * roots.length;
   const wiki = options.wiki;
   const data: RecipeData = {
     version: 1,
@@ -269,10 +277,10 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
     ...(options.promotions && wiki ? { promotions: {} } : {}),
   };
   const searched = new Set<number>();
-  const seen = new Set<number>([itemId]);
+  const seen = new Set<number>(roots);
   const currencyIds = new Set<number>();
   const upgradeIds = new Set<number>();
-  let frontier = [itemId];
+  let frontier = roots;
 
   for (let depth = 0; frontier.length > 0 && depth <= maxDepth; depth++) {
     const search = depth < maxDepth;
@@ -328,7 +336,7 @@ export async function fetchRecipeData(client: Gw2Client, itemId: number, options
   options.onRecipes?.(data);
   if (wiki && options.vendors !== false) {
     const unpriced = Object.keys(data.items).map(Number).filter((id) => unpricedLeaf(data, searched, id));
-    await addVendors(client, wiki, data, searched, unpriced, options);
+    await addVendors(client, wiki, data, searched, unpriced, options, 'vendors', MAX_VENDOR_ITEMS * roots.length);
   }
   data.searched = [...searched].sort((a, b) => a - b);
   return data;
@@ -385,6 +393,7 @@ async function addVendors(
   first: readonly number[],
   options: Pick<FetchRecipeOptions, 'vendorCurrency' | 'maxOffers' | 'onProgress'>,
   phase: FetchProgress['phase'] = 'vendors',
+  maxLooked = MAX_VENDOR_ITEMS,
 ): Promise<void> {
   const prefer = options.vendorCurrency ?? new Map<number, number>();
   const maxOffers = options.maxOffers ?? 1 + VENDOR_ALTERNATIVES;
@@ -397,7 +406,7 @@ async function addVendors(
   let currencyByName: Map<string, { id: number; name: string }> | undefined;
 
   for (let round = 0; round < VENDOR_ROUNDS && candidates.length; round++) {
-    candidates = candidates.filter((id) => !looked.has(id)).slice(0, MAX_VENDOR_ITEMS - looked.size);
+    candidates = candidates.filter((id) => !looked.has(id)).slice(0, maxLooked - looked.size);
     if (!candidates.length) break;
     for (const id of candidates) looked.add(id);
 

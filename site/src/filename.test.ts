@@ -14,11 +14,15 @@ describe('reportFilename', () => {
 describe('planFilename', () => {
   const date = new Date(2026, 10, 15);
   it('names the goal and the date', () => {
-    expect(planFilename('Exordium', date, 'md')).toBe('gw2-plan-Exordium-2026-11-15.md');
-    expect(planFilename('Gift of Mastery', date, 'json')).toBe('gw2-plan-Gift-of-Mastery-2026-11-15.json');
+    expect(planFilename(['Exordium'], date, 'md')).toBe('gw2-plan-Exordium-2026-11-15.md');
+    expect(planFilename(['Gift of Mastery'], date, 'json')).toBe('gw2-plan-Gift-of-Mastery-2026-11-15.json');
+  });
+  it('names two goals, or the first and how many more', () => {
+    expect(planFilename(['Exordium', "Aurene's Weight"], date, 'md')).toBe('gw2-plan-Exordium-Aurene-s-Weight-2026-11-15.md');
+    expect(planFilename(['Exordium', 'b', 'c'], date, 'md')).toBe('gw2-plan-Exordium-and-2-more-2026-11-15.md');
   });
   it('makes unsafe and overlong names filename-safe', () => {
-    expect(planFilename('../..', date, 'md')).toBe('gw2-plan-item-2026-11-15.md');
-    expect(planFilename('x'.repeat(500), date, 'md')).toHaveLength('gw2-plan--2026-11-15.md'.length + 80);
+    expect(planFilename(['../..'], date, 'md')).toBe('gw2-plan-item-2026-11-15.md');
+    expect(planFilename(['x'.repeat(500)], date, 'md')).toHaveLength('gw2-plan--2026-11-15.md'.length + 80);
   });
 });

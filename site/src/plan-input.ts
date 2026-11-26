@@ -1,13 +1,48 @@
 /** Parsing for what the player types or pastes into the crafting plan form. Pure. */
 import type { PlanNote, PlanUpdate } from '@gw2kit/recipes';
 
+export const MAX_QUANTITY = 10_000;
+
+/** Trimmed, single spaced, with the apostrophe item names use. */
+export const cleanName = (input: string): string => input.trim().replace(/\s+/g, ' ').replace(/\u2019/g, "'");
+
+export type Goal = { id: number } | { name: string };
+
 /** An item id (digits only) or an exact item name. Undefined when empty. */
-export function parseGoal(input: string): { id: number } | { name: string } | undefined {
-  const value = input.trim().replace(/\s+/g, ' ');
+export function parseGoal(input: string): Goal | undefined {
+  const value = cleanName(input);
   if (!value) return undefined;
   if (!/^\d+$/.test(value)) return { name: value };
   const id = Number(value);
   return Number.isSafeInteger(id) && id > 0 ? { id } : undefined;
+}
+
+export interface GoalRow {
+  item: string;
+  quantity: string;
+}
+
+export type GoalRows =
+  | { goals: { goal: Goal; input: string; quantity: number }[] }
+  | { error: string; row: number; field: 'item' | 'quantity' };
+
+/**
+ * The build form's rows, one item each: names are never split, since they can
+ * hold commas and apostrophes. Rows with no item are skipped.
+ */
+export function parseGoalRows(rows: readonly GoalRow[]): GoalRows {
+  const goals: Extract<GoalRows, { goals: unknown }>['goals'] = [];
+  for (const [row, { item, quantity: typed }] of rows.entries()) {
+    if (!item.trim()) continue;
+    const goal = parseGoal(item);
+    if (!goal) return { error: 'Enter an item name or id.', row, field: 'item' };
+    const quantity = Number(typed);
+    if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY) {
+      return { error: `Quantity must be a whole number from 1 to ${MAX_QUANTITY}.`, row, field: 'quantity' };
+    }
+    goals.push({ goal, input: item, quantity });
+  }
+  return goals.length ? { goals } : { error: 'Enter an item name or id.', row: 0, field: 'item' };
 }
 
 type Json = Record<string, unknown>;
@@ -72,7 +107,7 @@ function note(value: unknown, step: string): PlanNote | null {
   return out;
 }
 
-const FIELDS = ['choose', 'done', 'undone', 'notes', 'settings'];
+const FIELDS = ['choose', 'done', 'undone', 'notes', 'quantities', 'settings'];
 
 /**
  * The update in a pasted reply, checked for shape. Whether the steps and routes
@@ -97,6 +132,16 @@ export function parsePlanUpdate(text: string): PlanUpdate {
   if (json.notes !== undefined) {
     update.notes = Object.fromEntries(entries(json.notes, 'notes').map(([step, value]) => [step, note(value, step)]));
   }
+  if (json.quantities !== undefined) {
+    update.quantities = Object.fromEntries(
+      entries(json.quantities, 'quantities').map(([goal, value]) => {
+        if (typeof value !== 'number' || !Number.isInteger(value) || value < 0 || value > MAX_QUANTITY) {
+          throw new Error(`The quantity of "${goal}" must be a whole number from 0 (remove it) to ${MAX_QUANTITY}.`);
+        }
+        return [goal, value];
+      }),
+    );
+  }
   if (json.settings !== undefined) {
     update.settings = Object.fromEntries(
       entries(json.settings, 'settings').map(([name, value]) => {
@@ -107,6 +152,7 @@ export function parsePlanUpdate(text: string): PlanUpdate {
   }
   const size =
     Object.keys(update.settings ?? {}).length +
+    Object.keys(update.quantities ?? {}).length +
     Object.keys(update.choose ?? {}).length +
     (update.done?.length ?? 0) +
     (update.undone?.length ?? 0) +

@@ -9,7 +9,7 @@ import {
   type Permission,
   type TokenInfo,
 } from '@gw2kit/client';
-import { buildRecipeTree, withHoldings } from '@gw2kit/recipes';
+import { buildRecipeTree, solvePlan, withHoldings } from '@gw2kit/recipes';
 import type { WikiClient } from '@gw2kit/wiki';
 import {
   ACCOUNT,
@@ -21,7 +21,13 @@ import {
   createContext,
   fetchCharacter,
   readHoldings,
+  readSellables,
   renderPlan,
+  renderSales,
+  planSales,
+  planShortfall,
+  salesForPlan,
+  type SaleOptions,
   fmt,
   nameOf,
   renderCharacter,
@@ -42,6 +48,7 @@ export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
   gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
   gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances' },
+  gw2_raise_gold: { required: ['inventories'], optional: ['characters', 'tradingpost', 'wallet'], note: 'characters adds character bags, tradingpost adds coins waiting in the delivery box, wallet works out what a plan is short' },
   gw2_plan_holdings: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet counts currency balances toward the plan' },
 };
 
@@ -217,19 +224,82 @@ export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: 
 
 // ---------------------------------------------------------------- crafting plan
 
-/** Write what the account holds into a saved plan. */
-export async function planHoldings(client: Gw2Client, name: string, dir = plansDir()): Promise<string> {
-  const perms = await requirePermissions(client, 'gw2_plan_holdings');
+/** Read the account into the saved plan `name`. */
+async function syncPlan(client: Gw2Client, permissions: readonly Permission[], name: string, dir: string) {
   await loadPlan(name, dir); // fail on a bad name before reading the account
-  const { holdings, notes } = await readHoldings(client, perms);
+  const { holdings, notes } = await readHoldings(client, permissions);
   // Loaded again: the plan may have been updated while the account was read.
   const plan = withHoldings(await loadPlan(name, dir), holdings);
   await savePlan(name, plan, dir);
+  return { plan, notes };
+}
+
+/** Write what the account holds into a saved plan. */
+export async function planHoldings(client: Gw2Client, name: string, dir = plansDir()): Promise<string> {
+  const perms = await requirePermissions(client, 'gw2_plan_holdings');
+  const { plan, notes } = await syncPlan(client, perms, name, dir);
   return [
     `Holdings saved to plan \`${name}\`: bank, shared slots, character bags, material storage and wallet. ` +
       `Equipped gear, the delivery box and guild storage are not counted.${notes.length ? ` Notes: ${notes.join('; ')}.` : ''}`,
     renderPlan(plan, { sections: ['decisions', 'covered'] }),
     `For the remaining steps, use gw2_plan_show {plan: "${name}"} on gw2-data.`,
+  ].join('\n\n');
+}
+
+// ---------------------------------------------------------------- raise gold
+
+export interface RaiseGoldArgs {
+  /** Gold to raise (not copper). */
+  targetGold?: number | undefined;
+  /** Saved plan whose materials are held back and whose shortfall is the default target. */
+  plan?: string | undefined;
+  method?: SaleOptions['method'] | undefined;
+  order?: SaleOptions['order'] | undefined;
+  keep?: SaleOptions['keep'] | undefined;
+  everything?: boolean | undefined;
+}
+
+const NOTHING_SOLD =
+  'Nothing has been sold: the API is read-only, so make these sales in game. Bound items, equipped gear and guild storage are never considered, ' +
+  'and nothing is refined, salvaged or converted from currencies first.';
+
+/** What the player could sell to raise gold, on its own or for a saved plan. */
+export async function raiseGold(client: Gw2Client, args: RaiseGoldArgs, dir = plansDir()): Promise<string> {
+  const perms = await requirePermissions(client, 'gw2_raise_gold');
+  const options: SaleOptions = {
+    ...(args.targetGold === undefined ? {} : { target: Math.round(args.targetGold * 10_000) }),
+    ...(args.method ? { method: args.method } : {}),
+    ...(args.order ? { order: args.order } : {}),
+    ...(args.keep ? { keep: args.keep } : {}),
+    ...(args.everything ? { everything: true } : {}),
+  };
+  const read = async () => {
+    const { items, notes, delivery } = await readSellables(client, perms);
+    return { items, extra: { notes, ...(delivery === undefined ? {} : { delivery }) } };
+  };
+
+  if (args.plan === undefined) {
+    const { items, extra } = await read();
+    return `${renderSales(planSales(items, options), extra)}\n\n${NOTHING_SOLD}`;
+  }
+
+  const { plan, notes } = await syncPlan(client, perms, args.plan, dir);
+  const saved = `Holdings saved to plan \`${args.plan}\`.${notes.length ? ` Notes: ${notes.join('; ')}.` : ''}`;
+  if (options.target === undefined && planShortfall(plan) === 0) {
+    return [
+      saved,
+      renderPlan(plan, { sections: [] }),
+      'The wallet covers the gold this plan still needs, so nothing needs selling. Pass `target_gold` to raise an amount anyway.',
+    ].join('\n\n');
+  }
+  const { items, extra } = await read();
+  const undecided = solvePlan(plan).steps.some((s) => s.undecided);
+  return [
+    saved,
+    renderPlan(plan, { sections: [], sales: { plan: salesForPlan(plan, items, { ...options, delivery: extra.delivery }), ...extra } }),
+    `Held back: what you own that this plan uses. Other saved plans are not considered; name their materials in \`keep\`.` +
+      (undecided ? ' Recipe choices are still open, and only the assumed routes are protected: settle them before selling.' : ''),
+    NOTHING_SOLD,
   ].join('\n\n');
 }
 

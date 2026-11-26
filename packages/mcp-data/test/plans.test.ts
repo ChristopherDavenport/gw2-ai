@@ -3,7 +3,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { Gw2Client, RateLimiter } from '@gw2kit/client';
 import { WikiClient } from '@gw2kit/wiki';
-import { loadPlan } from '@gw2-ai/core/plans';
+import { loadPlan, savePlan } from '@gw2-ai/core/plans';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { planCreate, planResearch, planShow, planUpdate } from '../src/plans.js';
 
@@ -77,5 +77,32 @@ describe('plan tools', () => {
 
     expect(await planResearch(wiki, 'gift-of-tests', ['Ore', 'Nothing'], dir)).toMatch(/## Ore[\s\S]*Ore is a thing[\s\S]*No wiki excerpt for: nothing/);
     expect((await loadPlan('gift-of-tests', dir)).research).toHaveProperty('i2');
+  });
+
+  it('creates one plan for several goals, from `items` and `item_id` together', async () => {
+    await expect(planCreate(client, wiki, {}, dir)).rejects.toThrow(/Pass `item_id`/);
+    await expect(planCreate(client, wiki, { items: [{ itemId: 1, quantity: 1 }, { itemId: 99, quantity: 1 }] }, dir)).rejects.toThrow(/No item with id 99/);
+
+    const out = await planCreate(client, wiki, { items: [{ itemId: 1, quantity: 1 }, { itemId: 2, quantity: 5 }] }, dir);
+    expect(out).toContain('Saved as plan `gift-of-tests-and-ore`');
+    expect(out).toContain('# Crafting plan: 1 × Gift of Tests + 5 × Ore');
+    // 4 for the gift and 5 for their own sake.
+    expect(out).toContain('9 × Ore');
+    expect(await planShow(undefined, {}, dir)).toContain('| gift-of-tests-and-ore | 1 × Gift of Tests, 5 × Ore |');
+  });
+
+  it('adds goals, changes quantities and removes them', async () => {
+    await planCreate(client, wiki, { itemId: 1, quantity: 1, name: 'grow' }, dir);
+    const plan = await loadPlan('grow', dir);
+    await savePlan('grow', { ...plan, holdings: { items: {}, wallet: {}, fetchedAt: '2026-11-26T00:00:00.000Z' } }, dir);
+
+    const added = await planUpdate(client, wiki, 'grow', { add: [{ itemId: 2, quantity: 3 }, { itemId: 99, quantity: 1 }] }, dir);
+    expect(added).toContain('Not applied:\n- No item with id 99.');
+    expect(added).toContain('Run gw2_plan_holdings on gw2-account again');
+    expect(added).toContain('# Crafting plan: 1 × Gift of Tests + 3 × Ore');
+
+    const changed = await planUpdate(client, wiki, 'grow', { quantities: { 'Gift of Tests': 0, Ore: 7 } }, dir);
+    expect(changed).toContain('# Crafting plan: 7 × Ore');
+    expect((await loadPlan('grow', dir)).goals).toEqual([{ itemId: 2, name: 'Ore', quantity: 7 }]);
   });
 });

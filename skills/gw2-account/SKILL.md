@@ -1,6 +1,6 @@
 ---
 name: gw2-account
-description: Answer questions about the player's own Guild Wars 2 (GW2) account using their API key or a pasted account report. Use when the user asks what they own or have unlocked ("what's in my bank", "do I have any Mystic Clovers", "where is my Twilight", "which characters can craft"), how much gold or wealth they have ("how rich am I", "what's my account worth"), what to do today or this week (Wizard's Vault dailies and weeklies, world bosses, Hero's Choice map chests, raid clears, daily crafting), or anything about their characters, wallet, material storage, trading post orders, achievements, legendary armory or collection unlocks. Also use when the user pastes a markdown "Guild Wars 2 account report".
+description: Answer questions about the player's own Guild Wars 2 (GW2) account using their API key or a pasted account report. Use when the user asks what they own or have unlocked ("what's in my bank", "do I have any Mystic Clovers", "where is my Twilight", "which characters can craft"), how much gold or wealth they have ("how rich am I", "what's my account worth"), what to sell to raise gold ("what can I sell", "I need 200g"), what to do today or this week (Wizard's Vault dailies and weeklies, world bosses, Hero's Choice map chests, raid clears, daily crafting), or anything about their characters, wallet, material storage, trading post orders, achievements, legendary armory or collection unlocks. Also use when the user pastes a markdown "Guild Wars 2 account report".
 ---
 
 # GW2 account questions
@@ -29,6 +29,7 @@ If neither is available, say so and offer both options: create a key at https://
    | Easy achievements to finish | `gw2_account_report` | `achievements` |
    | Skins/dyes/minis completion | `gw2_account_report` | `unlocks` |
    | Crafting something from what I have | `gw2_shopping_list` | `{item_id, quantity}` |
+   | "What can I sell?", "I need N gold" | `gw2_raise_gold` | `{target_gold}`; `{plan}` to pay for a saved plan. See below |
    | Progress on a saved crafting plan (a legendary) | `gw2_plan_holdings` | `{plan}`; plans are listed by `gw2_plan_show` on gw2-data (see the gw2-goals skill) |
    | Anything else (masteries, homestead, guild stash, PvP stats) | `gw2_account_get` | `{path: "/v2/account/masteries"}` etc. See the gw2-api skill for paths |
 
@@ -65,6 +66,13 @@ Daily resets happen at 00:00 UTC; weekly resets (Wizard's Vault weekly, raids) o
 - Trading post: coins waiting in the delivery box, plus open sell listings (quantity times unit price, less the 10% exchange fee still owed).
 - Other currencies (karma, laurels, gems...) listed but not converted, except gems: offer to price them with `gw2_gem_exchange {gems}` from gw2-data.
 Values are gross instant-sell prices at the highest buy order. Selling actually nets about 85% after trading post fees, and selling large stacks moves the price. Account-bound items and legendaries have no market value; list them separately instead of saying they're worth zero.
+
+**Raising gold.** `gw2_raise_gold` works with or without crafting. Without `plan`, pass `target_gold` (in gold) or leave it out to list everything sellable. With `plan`, it refreshes that plan's holdings, holds back what the plan uses and aims at its shortfall (needs `wallet`). Other arguments: `method` (`instant`, default, or `list`), `order` (`least-loss`, default, or `fewest`), `keep` (names or ids), `everything` (also non-materials; ask first). Ask whether there is anything they want to keep. Tell the player:
+- Nothing is sold for them; the API is read-only. They make the sales in game, after picking up any coins in the delivery box.
+- It is one step only: it doesn't consider refining, salvaging or converting currencies into gold first.
+- Listed sales are not guaranteed, and prices are a snapshot.
+- Bound items, equipped gear and guild storage are never considered; Legendary and Ascended items are never suggested.
+- With a plan, only that plan's materials are protected, for the recipes currently chosen.
 
 **"Where is X?" / "Do I have X?"** Use `gw2_find_item`. If several items share a name (exotic/ascended versions, skins vs items), show each with its id. If it finds nothing, the item may be equipped on a character (check `gw2_character`), in the legendary armory, in a guild stash, or sitting in the trading post delivery box.
 
