@@ -265,8 +265,10 @@ export interface RaiseGoldArgs {
   craft?: boolean | undefined;
   /** Consider Mystic Forge promotions before selling. Default false. */
   promote?: boolean | undefined;
-  /** Count crafting paths paid in currencies, which need gold up front. Default false. */
+  /** Count currency paths that need gold up front. Default false. */
   upfront?: boolean | undefined;
+  /** Count currency paths that need no gold. Default true. */
+  currencies?: boolean | undefined;
   /** Share of daily trade volume to sell of a path's output. Default 0.1. */
   volumeShare?: number | undefined;
   /** Days of that volume to wait out. Default 7. */
@@ -280,7 +282,7 @@ function nothingSold(considered: { craft: boolean; promote: boolean; paths: bool
     'Nothing has been sold: the API is read-only, so do any crafting and make the sales in game. Bound items, equipped gear and guild storage are never considered.',
     ways ? `Only one step of ${ways} is considered for spare materials; nothing is salvaged.` : 'Nothing is crafted, promoted or salvaged first.',
     considered.paths
-      ? 'The only currency conversion considered is crafting what Imperial Favor pays toward, from materials bought with gold.'
+      ? 'Currencies are only spent on the paths bundled for Imperial Favor, Rift Essences, Curious Mursaat Remnants and Volatile Magic.'
       : 'Nothing is converted from currencies.',
     considered.promote ? 'Promotion yields are random: their quantities and gold are averages.' : '',
   ]
@@ -327,7 +329,7 @@ export async function raiseGold(client: Gw2Client, args: RaiseGoldArgs, dir = pl
       options: {
         ...options,
         ...(data ? { conversions: data } : {}),
-        ...(paths.data ? { paths: paths.data, upfront: args.upfront === true } : {}),
+        ...(paths.data ? { paths: paths.data, upfront: args.upfront === true, spend: args.currencies !== false } : {}),
         ...(args.volumeShare === undefined ? {} : { pathShare: args.volumeShare }),
         ...(args.waitDays === undefined ? {} : { pathDays: args.waitDays }),
       },

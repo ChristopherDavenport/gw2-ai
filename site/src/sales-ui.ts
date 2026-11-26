@@ -35,18 +35,21 @@ export function readConvertControls(prefix: string): ConversionWants {
   return { craft: $<HTMLInputElement>(`${prefix}-craft`).checked, promote: $<HTMLInputElement>(`${prefix}-promote`).checked };
 }
 
-/** The `<prefix>-upfront` box and the paths read for it, as planSales options. */
-export function pathOptions(prefix: string, paths: AccountSales['paths']): Pick<SaleOptions, 'paths' | 'upfront'> {
-  return paths.data ? { paths: paths.data, upfront: $<HTMLInputElement>(`${prefix}-upfront`).checked } : {};
+/** The `<prefix>-spend` and `-upfront` boxes and the paths read for them, as planSales options. */
+export function pathOptions(prefix: string, paths: AccountSales['paths']): Pick<SaleOptions, 'paths' | 'upfront' | 'spend'> {
+  const checked = (box: string) => $<HTMLInputElement>(`${prefix}-${box}`).checked;
+  return paths.data ? { paths: paths.data, spend: checked('spend'), upfront: checked('upfront') } : {};
 }
 
 /** Paths that spend currencies can't be had without the wallet. */
 export function showUpfront(prefix: string, token: TokenInfo | undefined): void {
   const missing = !token || missingPermissions(token.permissions, ['wallet']).length > 0;
-  const box = $<HTMLInputElement>(`${prefix}-upfront`);
-  box.disabled = missing;
-  if (missing) box.checked = false;
-  $(`${prefix}-upfront-hint`).textContent = missing ? 'Paths that need gold up front need a key with the wallet permission.' : '';
+  const upfront = $<HTMLInputElement>(`${prefix}-upfront`);
+  upfront.disabled = missing;
+  if (missing) upfront.checked = false;
+  // Stays checked: it is on by default once the key allows it.
+  $<HTMLInputElement>(`${prefix}-spend`).disabled = missing;
+  $(`${prefix}-upfront-hint`).textContent = missing ? 'Spending currencies needs a key with the wallet permission.' : '';
 }
 
 /** What to say while `kinds` are being read. */

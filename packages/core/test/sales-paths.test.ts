@@ -1,6 +1,6 @@
 import { planFromData, type RecipeData } from '@gw2kit/recipes';
 import { describe, expect, it } from 'vitest';
-import { CURRENCY_PATHS, pathCap, planSales, planSalesPaths, renderSales, salesForPlan, type CurrencyPath, type MarketItem, type SalesPathData, type Sellable } from '../src/index.js';
+import { CURRENCY_LEFT_OUT, CURRENCY_PATHS, pathCap, planSales, planSalesPaths, renderSales, salesForPlan, type CurrencyPath, type MarketItem, type SalesPathData, type Sellable } from '../src/index.js';
 
 const FAVOR = 68;
 const NOTES = 61;
@@ -79,7 +79,7 @@ describe('planSalesPaths', () => {
     expect(reasons(data({ paths: [path(1, 'Axe', { volume })] }))).toEqual(['none were sold in the volume snapshot']);
     expect(reasons(data({ paths: [path(1, 'Axe', { unobtainable: [[5, 'Soul', 1]] })] }))).toEqual(["needs Soul, which can't be bought"]);
     expect(reasons(data({ paths: [path(1, 'Axe')], ratings: new Map([['Weaponsmith', 400]]) }))).toEqual(['needs Weaponsmith 500']);
-    expect(reasons(data({ paths: [path(1, 'Axe')], learned: new Set() }))).toEqual(['recipes not unlocked: Axe']);
+    expect(reasons(data({ paths: [path(1, 'Axe')], learned: new Set() }))).toEqual(['recipe not unlocked']);
   });
 });
 
@@ -124,7 +124,126 @@ describe('currency paths in sales', () => {
   });
 
   it('ships the sixteen Imperial Favor weapons, all made from things that can be had', () => {
-    expect(CURRENCY_PATHS).toHaveLength(16);
-    expect(CURRENCY_PATHS.every((p) => p.currencies.some(([id]) => id === FAVOR) && !p.unobtainable.length && !p.limits.length)).toBe(true);
+    const favor = CURRENCY_PATHS.filter((p) => p.currency === FAVOR);
+    expect(favor).toHaveLength(16);
+    expect(favor.every((p) => p.currencies.some(([id]) => id === FAVOR) && !p.unobtainable.length && !p.limits.length)).toBe(true);
+  });
+
+  it('ships paths that take their currency, with averages from enough openings', () => {
+    expect(new Set(CURRENCY_PATHS.map((p) => p.currency))).toEqual(new Set([68, 78, 79, 80, 45, 104829]));
+    for (const p of CURRENCY_PATHS) {
+      expect(p.currencies.some(([id]) => id === p.currency), p.name).toBe(true);
+      expect(p.unobtainable, p.name).toEqual([]);
+      if (p.contents) expect(p.contents.sample, p.name).toBeGreaterThanOrEqual(100);
+      else expect(p.volume, p.name).toBeDefined();
+    }
+    expect(CURRENCY_LEFT_OUT.some(([, name, reason]) => name === 'Skritt Supply Box' && reason.includes('openings'))).toBe(true);
+  });
+});
+
+const ESSENCE = 78;
+
+/** A container holding 2 ore (10c at a vendor, 100c sold), and half a trinket nobody trades. */
+const bag = (over: Partial<CurrencyPath> = {}): CurrencyPath => ({
+  currency: ESSENCE,
+  output: 500,
+  name: 'Bag',
+  vendor: 'Trader',
+  currencies: [[ESSENCE, 10]],
+  items: [],
+  unobtainable: [],
+  limits: [],
+  crafts: [],
+  contents: {
+    sample: 250,
+    source: 'Bag/Drop rate',
+    yields: [
+      [7, 'Ore', 2, 10, 1000, 1000],
+      [8, 'Trinket', 0.5, 6, 0, 0],
+    ],
+  },
+  ...over,
+});
+
+const bags = (over: Partial<SalesPathData> = {}): SalesPathData => ({
+  paths: [bag()],
+  currencyNames: { 78: 'Fine Rift Essence' },
+  market: new Map([[7, { name: 'Ore', buy: 100, sell: 120 }]]),
+  wallet: { 1: 0, [ESSENCE]: 100 },
+  leftOut: [[ESSENCE, 'Box', 'only 4 openings are recorded']],
+  asOf: '2026-11-26',
+  contentDates: { from: '2026-10-27', to: '2026-11-26' },
+  ...over,
+});
+
+describe('containers bought with a currency', () => {
+  it('are worth their average contents, bound ones at vendor value', () => {
+    const [sale] = planSalesPaths(bags()).sales;
+    // 2 ore at 100c less 15%, and half a trinket at 6c.
+    expect([sale!.units, sale!.profits[0]]).toEqual([10, 173]);
+    expect(sale!.expected).toEqual([
+      { name: 'Ore', sell: 20, vendor: 0, revenue: 1700 },
+      { name: 'Trinket', sell: 0, vendor: 5, revenue: 30 },
+    ]);
+  });
+
+  it('sell no more of an item than its volume cap, between them', () => {
+    const volume = (n: number) => bag({ contents: { sample: 250, source: 'x', yields: [[7, 'Ore', 2, 10, n, n]] } });
+    // A cap of 7: three bags in full, then half of one's ore, the rest at 10c.
+    const plan = planSalesPaths(bags({ paths: [volume(10), { ...volume(10), name: 'Sack', output: 501 }] }));
+    expect(plan.sales.reduce((sum, s) => sum + s.units, 0)).toBe(4);
+    expect(plan.sales.flatMap((s) => s.profits)).toEqual([170, 170, 170, 95]);
+    expect(plan.binding).toContainEqual({ kind: 'contents', name: 'Bag', units: 4 });
+  });
+
+  it('walk the buy orders behind what is already being sold', () => {
+    const market = new Map([[7, { name: 'Ore', buy: 100, book: [{ price: 100, quantity: 6 }, { price: 20, quantity: 100 }] }]]);
+    expect(planSalesPaths(bags({ market })).sales[0]!.profits).toEqual([173, 173, 173]);
+    expect(planSalesPaths(bags({ market }), { taken: new Map([[7, 4]]) }).sales[0]!.profits).toEqual([173]);
+  });
+
+  it('respect a purchase limit shared between currencies', () => {
+    const limits = [['Mass', 1, 3]] as const;
+    const paths = [bag({ limits }), bag({ limits, currency: 79, currencies: [[79, 10]] })];
+    const plan = planSalesPaths(bags({ paths, wallet: { [ESSENCE]: 100, 79: 100 } }));
+    expect(plan.sales.reduce((sum, s) => sum + s.units, 0)).toBe(3);
+    expect(plan.binding[0]).toMatchObject({ kind: 'limit', perWeek: 3 });
+  });
+
+  it('count without being asked when no gold is needed, unless turned off', () => {
+    const sales = planSales([], { paths: bags(), target: 200 });
+    expect(sales.lines.map((l) => [l.name, l.quantity])).toEqual([['Bag', 2]]);
+    expect(planSales([], { paths: bags(), spend: false }).lines).toEqual([]);
+    const markdown = renderSales(sales);
+    expect(markdown).toContain('Buy 2 × Bag from Trader, open them and sell what is inside to buy orders');
+    expect(markdown).toContain('Spends 20 Fine Rift Essence');
+    expect(markdown).toContain('No gold needed up front');
+    expect(markdown).toContain('Expect about 4 × Ore, 1 × Trinket');
+    expect(markdown).toContain('An average of 250 openings recorded on the wiki page Bag/Drop rate');
+    expect(markdown).toContain('Container contents are random');
+    expect(markdown).toContain('Left out, only 4 openings are recorded: Box.');
+  });
+
+  it('need asking for when gold has to be paid first', () => {
+    const paid = bags({ paths: [bag({ currencies: [[1, 50], [ESSENCE, 10]] })], wallet: { 1: 1000, [ESSENCE]: 100 } });
+    const off = planSales([], { paths: paid });
+    expect(off.lines).toEqual([]);
+    expect(off.paths!.withheld).toMatchObject({ profit: 1230, upfront: 500, names: ['Bag'], units: 10 });
+    expect(planSales([], { paths: paid, upfront: true }).lines[0]!.revenue).toBe(1230);
+  });
+
+  it('leave account-bound currencies the plan holds back', () => {
+    const data = bags({ itemCurrencies: [ESSENCE] });
+    expect(planSales([], { paths: data, reserve: new Map([[ESSENCE, 80]]) }).lines[0]!.quantity).toBe(2);
+  });
+});
+
+describe('vendor goods bought with a currency', () => {
+  it('are bought and sold in the batches the vendor sells', () => {
+    const flower = path(1, 'Axe', { batch: 10, crafts: [], items: [], currencies: [[FAVOR, 12]], vendor: 'Ward' });
+    const sales = planSales([], { paths: data({ paths: [flower], wallet: { [FAVOR]: 30 } }) });
+    // A volume cap of 3 still allows one lot.
+    expect([sales.lines[0]!.quantity, sales.lines[0]!.revenue]).toEqual([1, 85_000]);
+    expect(renderSales(sales)).toContain('Buy 10 × Axe from Ward and sell to buy orders');
   });
 });

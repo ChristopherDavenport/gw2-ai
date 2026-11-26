@@ -49,8 +49,10 @@ export interface SaleOptions {
   conversions?: ConversionData;
   /** Crafted from wallet currencies and bought materials (readSalesPaths). */
   paths?: SalesPathData;
-  /** Count `paths`, which need gold spent up front, toward the target. Default false: only say what they could raise. */
+  /** Count the `paths` that need gold spent up front toward the target. Default false: only say what they could raise. */
   upfront?: boolean;
+  /** Count the `paths` that need only currencies. Default true. */
+  spend?: boolean;
   /** Share of daily trade volume a path's output may be. Default 0.1. */
   pathShare?: number;
   /** Days of that volume to wait out. Default 7. */
@@ -87,8 +89,12 @@ export interface SalePlan {
   /** Copper the target is still missing after every sale. */
   short: number;
   method: 'instant' | 'list';
-  /** What the currency paths could do; their lines are in `lines` only when `included`. */
-  paths?: PathPlan & { included: boolean };
+  /** What the currency paths in `lines` do. `included`: those needing gold up front are among them. */
+  paths?: PathPlan & {
+    included: boolean;
+    /** What counting those that need gold would add. */
+    withheld?: { profit: number; upfront: number; names: string[]; units: number };
+  };
 }
 
 const DEFAULT_MIN_LINE = 10_000;
@@ -202,28 +208,70 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
     const reserve = new Map(options.currencyReserve);
     const shards = conversions.reduce((sum, c) => sum + c.spiritShards, 0);
     if (shards) reserve.set(SPIRIT_SHARD, (reserve.get(SPIRIT_SHARD) ?? 0) + shards);
-    const found = planSalesPaths(options.paths, {
-      method,
-      reserve,
-      ...(options.keep ? { keep: options.keep } : {}),
-      ...(options.pathShare === undefined ? {} : { share: options.pathShare }),
-      ...(options.pathDays === undefined ? {} : { days: options.pathDays }),
-    });
-    paths = { ...found, included: options.upfront === true };
-    for (const sale of paths.included ? found.sales : []) {
+    // Nor are the items spent like a currency that are being held back.
+    for (const id of options.paths.itemCurrencies ?? []) {
+      const held = options.reserve?.get(id);
+      if (held) reserve.set(id, (reserve.get(id) ?? 0) + held);
+    }
+    // Buy orders that sales of the account's own items fill are not there for what paths sell.
+    const taken = new Map(converted);
+    for (const c of candidates) if (c.item) taken.set(c.line.id, (taken.get(c.line.id) ?? 0) + c.line.quantity);
+    const plan = (gold: boolean) =>
+      planSalesPaths(options.paths!, {
+        method,
+        reserve,
+        taken,
+        gold,
+        free: options.spend !== false,
+        ...(options.keep ? { keep: options.keep } : {}),
+        ...(options.pathShare === undefined ? {} : { share: options.pathShare }),
+        ...(options.pathDays === undefined ? {} : { days: options.pathDays }),
+      });
+    const included = options.upfront === true;
+    const found = plan(included);
+    paths = { ...found, included };
+    if (!included) {
+      const all = plan(true);
+      const gold = all.sales.filter((s) => s.unitCost > 0);
+      // What is ruled out is worth saying for these too.
+      paths = { ...paths, blocked: all.blocked };
+      if (gold.length && all.profit > found.profit) {
+        paths.withheld = {
+          profit: all.profit - found.profit,
+          upfront: gold.reduce((sum, s) => sum + (s.unitCost + s.unitFee) * s.units, 0),
+          names: [...new Set(gold.map((s) => s.path.name))],
+          units: gold.reduce((sum, s) => sum + s.units * (s.path.batch ?? 1), 0),
+        };
+      }
+    }
+    for (const sale of found.sales) {
       const revenue = sale.profits.reduce((sum, p) => sum + p, 0);
-      const reference = options.paths.market.get(sale.path.output)?.sell;
       const cost = sale.unitCost * sale.units;
-      const kept = reference ? Math.min(1, (revenue + cost) / sellProceeds(reference * sale.units)) : 1;
+      // The share of what listing the same things would bring.
+      let listed = 0;
+      if (sale.path.contents) {
+        for (const e of sale.expected ?? []) {
+          const [id] = sale.path.contents.yields.find(([, name]) => name === e.name)!;
+          listed += Math.max(e.revenue, (options.paths.market.get(id)?.sell ?? 0) * 0.85 * e.sell);
+        }
+      } else {
+        const reference = options.paths.market.get(sale.path.output)?.sell;
+        listed = reference ? sellProceeds(reference * sale.units * (sale.path.batch ?? 1)) : 0;
+      }
+      const kept = listed > 0 ? Math.min(1, (revenue + cost) / listed) : 1;
       candidates.push({
         line: { id: sale.path.output, name: sale.path.name, quantity: sale.units, held: 0, how: method, revenue, kept, path: sale },
       });
     }
   }
 
-  // Worthwhile sales first, then the preferred order within each group.
+  /** Whether a sale only happens after paying for something. */
+  const paid = (c: { line: SaleLine }) => (c.line.path?.unitCost ?? 0) > 0;
+
+  // What costs nothing first, then worthwhile sales, then the preferred order within each group.
   candidates.sort(
     (a, b) =>
+      Number(paid(a)) - Number(paid(b)) ||
       Number(b.line.revenue >= minLine) - Number(a.line.revenue >= minLine) ||
       (options.order === 'fewest' ? 0 : Math.round(b.line.kept * 100) - Math.round(a.line.kept * 100)) ||
       b.line.revenue - a.line.revenue,
@@ -255,6 +303,8 @@ export function planSales(items: readonly Sellable[], options: SaleOptions = {})
     });
     // Drop sales the later, larger ones made unnecessary, worst first.
     for (let i = chosen.length - 2; i >= 0; i--) {
+      // A free sale is never dropped in favour of one that needs gold first.
+      if (!paid(chosen[i]!) && chosen.some(paid)) continue;
       if (raised - chosen[i]!.line.revenue >= target) raised -= chosen.splice(i, 1)[0]!.line.revenue;
     }
     // Only part of the last sale may be needed. Conversions are done whole.
@@ -397,26 +447,28 @@ const HOW: Record<SaleLine['how'], string> = { instant: 'to buy orders', list: '
 /** Sales listed one by one; the rest are totalled. */
 const LISTED_SALES = 60;
 
-/** What the lines made from currencies need to be read with, or what leaving them out gives up. */
+/** What the lines made from currencies need to be read with, and what leaving gold paths out gives up. */
 function pathSection(sales: SalePlan, paths: NonNullable<SalePlan['paths']>): string {
+  const w = paths.withheld;
+  const withheld = w
+    ? `**Not included: paths that need gold up front.** Spending currencies this way could raise about ${coins(w.profit)} more profit ` +
+      `(estimate: ${num(w.units)} × ${w.names.map(text).join(', ')}; ${coins(w.upfront)} needed first; ` +
+      `volume snapshot ${paths.volume.from} to ${paths.volume.to}). Turn on paths that need gold up front to count them.`
+    : '';
   if (!paths.sales.length) {
+    if (withheld) return withheld;
     const reasons = pathNotes(paths, 0, true).split('\n').filter((l) => l.startsWith('- Binding') || l.startsWith('- Left out') || l.startsWith('- Held back'));
     return paths.blocked.length || paths.binding.length
-      ? `### Paths that need gold up front\n\nNone can be used for a profit now.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`
+      ? `### Spending currencies\n\nNo currency can be turned into gold at a profit now.${reasons.length ? `\n\n${reasons.join('\n')}` : ''}`
       : '';
   }
   const units = paths.sales.reduce((sum, s) => sum + s.units, 0);
-  if (!paths.included) {
-    return (
-      `**Not included: paths that need gold up front.** Spending wallet currencies on crafting could raise about ${coins(paths.profit)} more profit ` +
-      `(estimate: ${num(units)} × ${[...new Set(paths.sales.map((s) => text(s.path.name)))].join(', ')}; ${coins(paths.upfront)} needed first; ` +
-      `volume snapshot ${paths.volume.from} to ${paths.volume.to}). Turn on paths that need gold up front to count them.`
-    );
-  }
   const used = sales.lines.filter((l) => l.path);
   const upfront = used.reduce((sum, l) => sum + (l.path!.unitCost + l.path!.unitFee) * l.quantity, 0);
   const full = used.reduce((sum, l) => sum + l.quantity, 0) === units;
-  return `### Paths that need gold up front\n\n${pathNotes(paths, upfront, full)}`;
+  // Only what the lines show needs explaining.
+  const shown = { ...paths, sales: used.map((l) => l.path!) };
+  return [`### Spending currencies\n\n${pathNotes(shown, upfront, full)}`, withheld].filter(Boolean).join('\n\n');
 }
 
 /** Markdown checklist of the sales, headed by what they raise. */
@@ -449,6 +501,9 @@ export function renderSales(sales: SalePlan, options: { heading?: string; delive
     head,
     shown.some((l) => l.convert?.kind === 'promote')
       ? 'Promotion yields are random: the amounts and gold for those lines, and the totals, are averages.'
+      : '',
+    shown.some((l) => l.path?.path.contents)
+      ? 'Container contents are random: the amounts and gold for those lines, and the totals, are averages.'
       : '',
     first ? `Some steps need purchases first, ${coins(first)} in all (already taken off what they raise).` : '',
     options.delivery ? `Pick up first: ${coins(options.delivery)} is waiting in the trading post delivery box.` : '',
