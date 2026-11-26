@@ -25,7 +25,7 @@ const TRAILING_DETAIL = /\s*\(([\d\s,?-]+|chance|guaranteed|choice)\)$/i;
 export function parseSources(section: string): PlanSource[] {
   const found = new Map<string, { kind: PlanSource['kind']; name: string; details: string[] }>();
   let kind: PlanSource['kind'] | null = null;
-  for (const line of section.split('\n')) {
+  for (const line of current(section).split('\n')) {
     if (Object.hasOwn(SOURCE_HEADINGS, line)) kind = SOURCE_HEADINGS[line]!;
     if (!kind || !line.startsWith('- ')) continue;
     let name = line.slice(2).trim();
@@ -41,6 +41,10 @@ export function parseSources(section: string): PlanSource[] {
   }
   return [...found.values()].map(({ details, ...rest }) => ({ ...rest, ...(details.length ? { detail: details.join(', ') } : {}) }));
 }
+
+/** Lines about sources that are gone, and the wiki's footnotes. */
+const STALE_LINE = /^- (\^|.*\([^)]*\b(historical|discontinued)\b[^)]*\)\s*$)/i;
+const current = (section: string) => section.split('\n').filter((line) => !STALE_LINE.test(line)).join('\n');
 
 const firstSentences = (text: string) => text.split('\n')[0]!.split(/(?<=\.)\s+/).slice(0, 2).join(' ');
 
@@ -102,7 +106,7 @@ async function excerpt(
   }
 
   const url = section?.url ?? (intros.get(step.name) ? pageUrl(step.name) : undefined);
-  const text = [intros.get(step.name), section?.text.slice(0, EXCERPT_CHARS)].filter(Boolean).join('\n');
+  const text = [intros.get(step.name), section && current(section.text).slice(0, EXCERPT_CHARS)].filter(Boolean).join('\n');
   const method = MAP_COMPLETION.exec(section?.text ?? '')?.[1];
   return text && url
     ? {

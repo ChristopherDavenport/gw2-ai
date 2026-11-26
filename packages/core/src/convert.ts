@@ -57,6 +57,11 @@ export interface Conversion {
   /** Crafting only. */
   disciplines?: readonly string[];
   rating?: number;
+  /**
+   * Conversions to do first because this one uses what they make instead of
+   * buying it. Their materials, takings and gain are part of this one's.
+   */
+  first?: { name: string; output: number; made: number; used: number; sold: number; uses: Conversion['uses'] }[];
 }
 
 /** The snapshot of Mystic Forge material promotions as conversion recipes. */
@@ -187,6 +192,46 @@ function best(
 }
 
 /**
+ * Join a conversion that buys something to the one that makes it, so nothing is
+ * sold to the trading post only to be bought back dearer. One job, done in
+ * order, so a gold target can't keep half of it.
+ */
+function chain(found: Conversion[], market: ReadonlyMap<number, MarketItem>, method: 'instant' | 'list'): Conversion[] {
+  const out = [...found];
+  for (let i = 0; i < out.length; i++) {
+    const maker = out[i]!;
+    // A joined job isn't fed into a third: its materials would be counted twice.
+    if (maker.first) continue;
+    const at = out.findIndex((c) => c !== maker && c.buys.some((b) => b.id === maker.output));
+    if (at < 0) continue;
+    const user = out[at]!;
+    const bought = user.buys.find((b) => b.id === maker.output)!;
+    const used = Math.min(bought.count, maker.units);
+    const saved = Math.round((bought.cost * used) / bought.count);
+    const lost = proceeds(market.get(maker.output), maker.units, method) - proceeds(market.get(maker.output), maker.units - used, method);
+    if (used <= 0 || saved <= lost) continue;
+    const buys = [
+      ...user.buys.flatMap((b) => (b === bought ? (b.count > used ? [{ ...b, count: b.count - used, cost: b.cost - saved }] : []) : [b])),
+      ...maker.buys,
+    ];
+    out[at] = {
+      ...user,
+      buys,
+      revenue: user.revenue + saved + maker.revenue - lost,
+      gain: user.gain + saved + maker.gain - lost,
+      spiritShards: user.spiritShards + maker.spiritShards,
+      first: [
+        ...(user.first ?? []),
+        { name: maker.name, output: maker.output, made: maker.units, used, sold: maker.units - used, uses: maker.uses },
+      ],
+    };
+    out.splice(i, 1);
+    i--;
+  }
+  return out;
+}
+
+/**
  * The conversions worth doing with `spare` (item id → units), best gain first.
  * Greedy: each takes its materials before the next is chosen.
  */
@@ -208,7 +253,7 @@ export function planConversions(
       if (!conversion || conversion.gain < minGain) open.delete(recipe);
       else if (!pick || conversion.gain > pick.conversion.gain) pick = { recipe, conversion };
     }
-    if (!pick) return out;
+    if (!pick) return chain(out, data.market, method);
     const { recipe, conversion } = pick;
     open.delete(recipe);
     out.push(conversion);
