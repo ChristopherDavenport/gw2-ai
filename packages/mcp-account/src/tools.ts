@@ -51,9 +51,9 @@ function tokenInfo(client: Gw2Client): Promise<TokenInfo> {
 export const TOOL_PERMISSIONS: Record<string, { required: Permission[]; optional: Permission[]; note: string }> = {
   gw2_find_item: { required: ['inventories'], optional: ['characters', 'unlocks', 'builds'], note: 'characters adds bags, unlocks adds the legendary armory, builds adds equipped gear' },
   gw2_character: { required: ['characters'], optional: ['builds', 'inventories'], note: 'builds adds build and equipment templates, inventories adds bags' },
-  gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances' },
+  gw2_shopping_list: { required: ['inventories'], optional: ['characters', 'wallet', 'tradingpost'], note: 'characters adds character bags to the holdings, wallet compares vendor currencies with your balances, tradingpost adds items waiting in the delivery box' },
   gw2_raise_gold: { required: ['inventories'], optional: ['characters', 'tradingpost', 'wallet', 'unlocks'], note: 'characters adds character bags and crafting ratings, tradingpost adds coins waiting in the delivery box, wallet works out what a plan is short and counts Spirit Shards for promotions, unlocks adds learned recipes to what is considered for crafting; wallet is also what paths paid in currencies are worked out from' },
-  gw2_plan_holdings: { required: ['inventories'], optional: ['characters', 'wallet'], note: 'characters adds character bags to the holdings, wallet counts currency balances toward the plan' },
+  gw2_plan_holdings: { required: ['inventories'], optional: ['characters', 'wallet', 'tradingpost'], note: 'characters adds character bags to the holdings, wallet counts currency balances toward the plan, tradingpost counts the delivery box and open buy orders and points out materials listed for sale' },
 };
 
 export class MissingPermissionError extends Error {}
@@ -221,8 +221,8 @@ export async function shoppingList(client: Gw2Client, wiki: WikiClient, itemId: 
   const notes = rest.length ? ` Notes: ${rest.join('; ')}.` : '';
   return (
     md +
-    `\nHoldings counted: bank, shared slots, character bags, material storage (${num(have.size)} distinct items). ` +
-    `Equipped gear, the delivery box and guild storage are not subtracted. ${wallet ? 'Wallet balances are compared with the vendor currencies needed.' : 'Wallet balances are not shown (the key lacks `wallet`).'}${notes} Costs use current TP sell listings.\n`
+    `\nHoldings counted: bank, shared slots, character bags, material storage and, with \`tradingpost\`, the delivery box (${num(have.size)} distinct items). ` +
+    `Equipped gear, open buy orders and guild storage are not subtracted. ${wallet ? 'Wallet balances are compared with the vendor currencies needed.' : 'Wallet balances are not shown (the key lacks `wallet`).'}${notes} Costs use current TP sell listings.\n`
   );
 }
 
@@ -243,8 +243,8 @@ export async function planHoldings(client: Gw2Client, name: string, dir = plansD
   const perms = await requirePermissions(client, 'gw2_plan_holdings');
   const { plan, notes } = await syncPlan(client, perms, name, dir);
   return [
-    `Holdings saved to plan \`${name}\`: bank, shared slots, character bags, material storage and wallet. ` +
-      `Equipped gear, the delivery box and guild storage are not counted.${notes.length ? ` Notes: ${notes.join('; ')}.` : ''}`,
+    `Holdings saved to plan \`${name}\`: bank, shared slots, character bags, material storage, wallet, the delivery box and open buy orders. ` +
+      `Equipped gear, guild storage and items listed for sale are not counted.${notes.length ? ` Notes: ${notes.join('; ')}.` : ''}`,
     renderPlan(plan, { sections: ['decisions', 'covered'] }),
     `For the remaining steps, use gw2_plan_show {plan: "${name}"} on gw2-data.`,
   ].join('\n\n');

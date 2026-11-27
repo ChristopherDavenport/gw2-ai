@@ -56,6 +56,33 @@ describe('renderPlan', () => {
   });
 });
 
+describe('trading post orders', () => {
+  const ordered = (buys: { quantity: number; price: number }[], market: { buy?: number; sell?: number } = { buy: 95, sell: 100 }) =>
+    withHoldings(swordPlan(), {
+      items: {},
+      wallet: {},
+      fetchedAt: '2026-11-26T00:00:00.000Z',
+      orders: { buys: { 5: buys }, sells: { 5: [{ quantity: 1, price: 120 }] }, market: { 5: market } },
+    });
+
+  it('takes units on buy order off a purchase and says which orders are beaten', () => {
+    const md = renderPlan(ordered([{ quantity: 2, price: 90 }]), { sections: ['buy'] });
+    expect(md).toContain(
+      '- [ ] 1 × Bar (2 on buy order, of 3): **1s** (1s each)\n' +
+        '  - On buy order: 2 at 90c (outbid: the top buy order is 95c).\n' +
+        '  - Listed for sale, not counted here: 1 at 1s 20c (undercut: the lowest listing is 1s). Cancelling',
+    );
+    // Without prices for the orders, nothing is said about where they stand.
+    expect(renderPlan(ordered([{ quantity: 2, price: 90 }], {}), { sections: ['buy'] })).toContain('  - On buy order: 2 at 90c.\n');
+  });
+
+  it('marks a step covered by orders, and an order that leads', () => {
+    const md = renderPlan(ordered([{ quantity: 2, price: 90 }, { quantity: 5, price: 95 }]), { sections: ['covered'] });
+    expect(md).toContain('- [x] 3 × Bar (on buy order: 5 at 95c, 2 at 90c (2 outbid: the top buy order is 95c))');
+    expect(renderPlan(ordered([{ quantity: 5, price: 95 }]), { sections: ['covered'] })).toContain('(on buy order: 5 at 95c (the top buy order))');
+  });
+});
+
 describe('gold on hand', () => {
   const withGold = (wallet: Record<number, number>) =>
     renderPlan(withHoldings(swordPlan(), { items: {}, wallet, fetchedAt: '2026-11-26T00:00:00.000Z' }));

@@ -25,6 +25,7 @@ import type {
   Outfit,
   Recipe,
   RecipeSearchQuery,
+  TransactionPageQuery,
   Skiff,
   Skin,
   Title,
@@ -57,13 +58,13 @@ export interface EconomyRoutes {
   '/v2/commerce/delivery': { response: CommerceDelivery };
   '/v2/commerce/transactions': { response: ('current' | 'history')[] };
   /** Open buy orders. Paged. */
-  '/v2/commerce/transactions/current/buys': { response: CommerceTransaction[] };
+  '/v2/commerce/transactions/current/buys': { response: CommerceTransaction[]; query: TransactionPageQuery };
   /** Open sell listings. Paged. */
-  '/v2/commerce/transactions/current/sells': { response: CommerceTransaction[] };
+  '/v2/commerce/transactions/current/sells': { response: CommerceTransaction[]; query: TransactionPageQuery };
   /** Fulfilled buy orders, last 90 days. Paged. */
-  '/v2/commerce/transactions/history/buys': { response: CommerceCompletedTransaction[] };
+  '/v2/commerce/transactions/history/buys': { response: CommerceCompletedTransaction[]; query: TransactionPageQuery };
   /** Completed sales, last 90 days. Paged. */
-  '/v2/commerce/transactions/history/sells': { response: CommerceCompletedTransaction[] };
+  '/v2/commerce/transactions/history/sells': { response: CommerceCompletedTransaction[]; query: TransactionPageQuery };
 
   // Collectables
   '/v2/minis': { response: number[]; item: Mini; id: number };

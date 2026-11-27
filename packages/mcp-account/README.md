@@ -19,7 +19,7 @@ Claude Code: `claude mcp add --scope user gw2-account -- npx -y @gw2-ai/mcp-acco
 - `gw2_find_item`: where an item is held: bank, shared slots, each character, material storage, legendary armory.
 - `gw2_character`: one character in detail: every build template (trait and skill names) and equipment template (stats, runes, sigils, infusions, PvP gear) with the active ones marked, crafting, bags. `templates: "active"` limits it to the templates in use.
 - `gw2_shopping_list`: a crafting tree for an item minus what the account already holds, with the rest priced.
-- `gw2_plan_holdings`: count what the account holds toward a saved crafting plan (made with `gw2_plan_create` on [`@gw2-ai/mcp-data`](https://www.npmjs.com/package/@gw2-ai/mcp-data); both use the files in `~/.local/share/gw2-ai/plans/`, or under `$XDG_DATA_HOME`). It changes only the local plan file, never the account.
+- `gw2_plan_holdings`: count what the account holds toward a saved crafting plan (made with `gw2_plan_create` on [`@gw2-ai/mcp-data`](https://www.npmjs.com/package/@gw2-ai/mcp-data); both use the files in `~/.local/share/gw2-ai/plans/`, or under `$XDG_DATA_HOME`). It changes only the local plan file, never the account. With `tradingpost` it also counts the delivery box and open buy orders, and shows materials listed for sale with the prices now beating them.
 - `gw2_raise_gold`: what to sell to raise gold (see below).
 - `gw2_account_get`: raw JSON from any authenticated account route (allowlisted paths only).
 

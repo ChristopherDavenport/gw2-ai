@@ -38,7 +38,7 @@ export interface RouteSpec {
    * `id` (e.g. `name` for /v2/characters). Must match `RouteMeta.key`.
    */
   key?: string;
-  /** Query parameters beyond ids/lang/page. Required keys make `query` required. */
+  /** Query parameters beyond ids/lang. Required keys make `query` required. */
   query?: object;
   /**
    * Narrower types for the template's `:params` (e.g. `{ team: 'red' | 'green' | 'blue' }`).

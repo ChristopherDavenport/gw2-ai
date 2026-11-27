@@ -90,6 +90,35 @@ describe('solvePlan', () => {
   });
 });
 
+describe('trading post orders', () => {
+  const orders = { buys: { 5: [{ quantity: 3, price: 80 }], 999: [{ quantity: 1, price: 1 }] }, sells: { 6: [{ quantity: 7, price: 9 }] }, market: { 5: { buy: 90 }, 999: { buy: 2 } } };
+
+  it('counts units on buy order after owned ones, and never units listed for sale', () => {
+    const plan = withHoldings(desert(), { items: { 5: 1 }, wallet: {}, orders });
+    expect(plan.holdings.orders).toEqual({ buys: { 5: orders.buys[5] }, sells: orders.sells, market: { 5: { buy: 90 } } });
+    const solved = solvePlan(parsePlan(JSON.stringify(plan)));
+    // 6 bars: 1 held, 3 on order, so 2 to make: one craft of 5 from 10 ore.
+    expect(step(solved, 'Bar')).toMatchObject({ need: 6, owned: 1, ordered: 3, count: 2, times: 1 });
+    expect(step(solved, 'Ore')).toMatchObject({ need: 10, owned: 0, ordered: 0, count: 10 });
+    expect(solved.fullCoin).toBeGreaterThan(solved.coin);
+  });
+
+  it('covers a step wholly on order, and leaves orders out with own materials off', () => {
+    let plan = withHoldings(desert(), { items: {}, wallet: {}, orders: { buys: { 5: [{ quantity: 4, price: 80 }, { quantity: 4, price: 70 }] }, sells: {} } });
+    let solved = solvePlan(plan);
+    expect(step(solved, 'Bar')).toMatchObject({ action: 'have', ordered: 6, count: 0 });
+    expect(step(solved, 'Ore')).toBeUndefined();
+    plan = updatePlan(plan, { settings: { useOwnMaterials: false } }).plan;
+    solved = solvePlan(plan);
+    expect(step(solved, 'Bar')).toMatchObject({ ordered: 0, count: 6 });
+  });
+
+  it('reads plans saved without orders, and rejects malformed ones', () => {
+    expect(step(solvePlan(parsePlan(JSON.stringify(desert()))), 'Bar')!.ordered).toBe(0);
+    expect(() => parsePlan({ ...desert(), holdings: { items: {}, wallet: {}, orders: { buys: {} } } })).toThrow('Not a crafting plan.');
+  });
+});
+
 describe('updatePlan', () => {
   it('chooses a recipe by an ingredient name, through JSON', () => {
     const { plan, errors } = updatePlan(planFromData(data()), { choose: { sword: 'Jungle Gift' }, notes: { i4: { text: 'Meta event reward' } } });

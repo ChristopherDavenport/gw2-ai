@@ -803,7 +803,7 @@ export function initPlanSection(options: PlanSectionOptions): PlanSection {
 
   // ---- Holdings and prices ----
 
-  const READING_HOLDINGS = 'Reading your bank, bags, materials and wallet...';
+  const READING_HOLDINGS = 'Reading your bank, bags, materials, wallet and trading post orders...';
 
   /**
    * Read holdings and use them in `plan`. Resolves to the gaps in what was read,
