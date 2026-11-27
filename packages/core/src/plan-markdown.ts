@@ -107,7 +107,43 @@ function unpaidText(step: PlanStep): string {
 const box = (step: PlanStep) => `- [${step.count === 0 ? 'x' : ' '}]`;
 const amount = (count: number, name: string) => `${num(count)} × ${text(name)}`;
 const inputText = (step: PlanStep) => step.inputs.map((i) => (i.key === 'c1' ? coins(i.count) : amount(i.count, i.name))).join(', ');
-const held = (step: PlanStep) => (step.owned > 0 ? ` (have ${num(step.owned)} of ${num(step.need)})` : '');
+const held = (step: PlanStep) => {
+  const parts = [step.owned > 0 ? `have ${num(step.owned)}` : '', step.ordered > 0 ? `${num(step.ordered)} on buy order` : ''].filter(Boolean);
+  return parts.length ? ` (${parts.join(', ')}, of ${num(step.need)})` : '';
+};
+
+/**
+ * The player's orders for one item with the price that now beats them, e.g.
+ * `20 at 1s 50c (outbid: the top buy order is 1s 60c)`. Empty with no orders.
+ */
+function orderList(plan: CraftingPlan, id: number, side: 'buys' | 'sells'): string {
+  const mine = [...(plan.holdings.orders?.[side][id] ?? [])].sort((x, y) => (side === 'buys' ? y.price - x.price : x.price - y.price));
+  if (!mine.length) return '';
+  const best = plan.holdings.orders?.market?.[id]?.[side === 'buys' ? 'buy' : 'sell'];
+  const total = mine.reduce((sum, o) => sum + o.quantity, 0);
+  const beaten = best === undefined ? 0 : mine.filter((o) => (side === 'buys' ? o.price < best : o.price > best)).reduce((sum, o) => sum + o.quantity, 0);
+  const [word, what] = side === 'buys' ? ['outbid', 'the top buy order'] : ['undercut', 'the lowest listing'];
+  const status =
+    best === undefined
+      ? ''
+      : beaten === 0
+        ? ` (${what})`
+        : ` (${beaten < total ? `${num(beaten)} ` : ''}${word}: ${what} is ${coins(best)})`;
+  return `${mine.map((o) => `${num(o.quantity)} at ${coins(o.price)}`).join(', ')}${status}`;
+}
+
+/** What the player's own trading post orders mean for a step still open. */
+function ordersText(plan: CraftingPlan, step: PlanStep): string {
+  if (step.kind !== 'Item') return '';
+  const buying = step.ordered > 0 ? orderList(plan, step.id, 'buys') : '';
+  const selling = orderList(plan, step.id, 'sells');
+  return (
+    (buying ? `\n  - On buy order: ${buying}.` : '') +
+    (selling
+      ? `\n  - Listed for sale, not counted here: ${selling}. Cancelling a listing gets the items back, but not its 5% listing fee.`
+      : '')
+  );
+}
 
 function noteText(step: PlanStep): string {
   const n = step.note;
@@ -223,7 +259,7 @@ function gates(steps: PlanStep[]): string[] {
 }
 
 /** Things to earn: currencies, drops and rewards. Unknown ones are flagged. */
-function acquire(steps: PlanStep[], averaged: ReadonlySet<StepKey>): string[] {
+function acquire(steps: PlanStep[], plan: CraftingPlan, averaged: ReadonlySet<StepKey>): string[] {
   return steps
     .filter((s) => s.action === 'earn')
     .sort((a, b) => Number(a.kind !== 'Item') - Number(b.kind !== 'Item') || a.name.localeCompare(b.name))
@@ -233,7 +269,7 @@ function acquire(steps: PlanStep[], averaged: ReadonlySet<StepKey>): string[] {
         : s.options.some((o) => o.action === 'buy') && !s.note && !s.research?.method
           ? ' — you chose to earn it'
           : '';
-      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}${s.bound ? ' [bound]' : ''}${how}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}${s.bound ? ' [bound]' : ''}${how}${ordersText(plan, s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -248,18 +284,18 @@ function buy(steps: PlanStep[], plan: CraftingPlan, averaged: ReadonlySet<StepKe
       const order = other_ ? `; ${ordering ? 'buying at once' : 'by buy order'} ≈ ${coins(other_ * s.count)}` : '';
       const make = s.options.find((o) => o.action === 'craft' || o.action === 'forge');
       const other = make && !make.priced && !s.unpaid ? `\n  - Can also be made, at a cost gold can't compare: ${routeLabel(make, [make])}` : '';
-      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${unpaidText(s)}${other}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)}: **${coins(s.coin)}** (${coins(buyPrice(plan, s.id) ?? 0)} each${order})${pickedText(s)}${unpaidText(s)}${other}${ordersText(plan, s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
-function vendor(steps: PlanStep[], averaged: ReadonlySet<StepKey>): string[] {
+function vendor(steps: PlanStep[], plan: CraftingPlan, averaged: ReadonlySet<StepKey>): string[] {
   return steps
     .filter((s) => s.action === 'vendor')
     .map((s) => {
       const offer = s.route!.offer!;
       const who = offer.vendors.slice(0, NAMED_VENDORS).map(text).join(' or ');
       const caps = capText(s);
-      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${pickedText(s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
+      return `${box(s)} ${amount(s.count, s.name)}${averageMark(averaged, s)}${held(s)} from ${who}, for ${inputText(s)}${caps ? ` (${caps})` : ''}${pickedText(s)}${ordersText(plan, s)}${noteText(s)}${researchText(s)}${offerText(s)}`;
     });
 }
 
@@ -288,7 +324,7 @@ function averageText(steps: readonly PlanStep[]): string {
 
 const averageMark = (averaged: ReadonlySet<StepKey>, s: PlanStep) => (averaged.has(s.key) ? ' (average)' : '');
 
-function makeLine(s: PlanStep): string {
+function makeLine(s: PlanStep, plan: CraftingPlan): string {
   const verb = s.action === 'forge' ? 'Forge' : 'Craft';
   const recipe = s.route!.recipe!;
   const pool = s.route!.pool;
@@ -302,7 +338,7 @@ function makeLine(s: PlanStep): string {
         : ''
       : ` (${recipe.disciplines.join('/')} ${recipe.min_rating})`;
   const used = pool ? poolText(s, pool) : inputText(s);
-  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${used}${pickedText(s)}${unpaidText(s)}${noteText(s)}${offerText(s)}`;
+  return `${box(s)} ${s.route!.promotion ? 'Promote to' : verb} ${amount(s.count, s.name)}${held(s)}${how}: ${used}${pickedText(s)}${unpaidText(s)}${ordersText(plan, s)}${noteText(s)}${offerText(s)}`;
 }
 
 /** A pool forge's inputs: the fixed ones, then which items make up the pool's share. */
@@ -315,7 +351,7 @@ function poolText(step: PlanStep, pool: NonNullable<PlanRoute['pool']>): string 
 }
 
 /** Crafts and forges, inputs before outputs, grouped by the part of the goal. */
-function make(solved: SolvedPlan): string[] {
+function make(solved: SolvedPlan, plan: CraftingPlan): string[] {
   const goals = new Set(solved.goals.map((g) => `i${g.itemId}`));
   const several = goals.size > 1;
   const names = new Map(solved.steps.map((s) => [s.key, s.name]));
@@ -331,7 +367,7 @@ function make(solved: SolvedPlan): string[] {
         : several
           ? 'Shared between goals'
           : 'Shared by several parts';
-    (groups.get(title) ?? groups.set(title, []).get(title)!).push(makeLine(s));
+    (groups.get(title) ?? groups.set(title, []).get(title)!).push(makeLine(s, plan));
   }
   const rank = (title: string) => (title.startsWith('Shared ') ? 0 : title === 'Finish' ? 2 : 1);
   return [...groups].sort(([a], [b]) => rank(a) - rank(b)).map(([title, lines]) => `### ${title}\n\n${lines.join('\n')}`);
@@ -523,13 +559,23 @@ export function renderPlan(whole: CraftingPlan, options: RenderPlanOptions = {})
       () => decisions(planChoices(plan, { ...solved, steps })),
     ],
     gates: ['Time-gated: start these early', () => gates(steps)],
-    acquire: ['Earn', () => acquire(open, averagedInputs(open))],
+    acquire: ['Earn', () => acquire(open, plan, averagedInputs(open))],
     buy: ['Buy on the trading post', () => buy(open, plan, averagedInputs(open))],
-    vendor: ['Buy from vendors', () => vendor(open, averagedInputs(open))],
-    make: ['Make, in order', () => make({ ...solved, steps: steps.filter((s) => s.count > 0) })],
+    vendor: ['Buy from vendors', () => vendor(open, plan, averagedInputs(open))],
+    make: ['Make, in order', () => make({ ...solved, steps: steps.filter((s) => s.count > 0) }, plan)],
     covered: [
       'Already covered',
-      () => steps.filter((s) => s.count === 0).map((s) => `- [x] ${amount(s.need, s.name)}${s.done ? ' (done)' : ' (held)'}`),
+      () =>
+        steps
+          .filter((s) => s.count === 0)
+          .map((s) => {
+            const how = s.done
+              ? 'done'
+              : s.ordered === 0
+                ? 'held'
+                : `${s.owned > 0 ? `${num(s.owned)} held; ` : ''}on buy order: ${orderList(plan, s.id, 'buys')}`;
+            return `- [x] ${amount(s.need, s.name)} (${how})`;
+          }),
     ],
     updating: ['Updating this plan', () => [UPDATING]],
   };

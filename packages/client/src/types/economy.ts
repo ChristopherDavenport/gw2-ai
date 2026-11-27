@@ -614,6 +614,13 @@ export interface CommerceDelivery {
   items: IdCount[];
 }
 
+/** Paging for the transaction lists: 50 per page unless `page_size` (at most 200) says otherwise. */
+export interface TransactionPageQuery {
+  /** Zero-based. */
+  page?: number;
+  page_size?: number;
+}
+
 /** An open order (`/v2/commerce/transactions/current/*`). */
 export interface CommerceTransaction {
   /** Transaction id. */

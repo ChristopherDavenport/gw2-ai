@@ -5,6 +5,7 @@ import { Gw2Client, RateLimiter } from '@gw2kit/client';
 import { WikiClient } from '@gw2kit/wiki';
 import { describe, expect, it } from 'vitest';
 import { planFromData } from '@gw2kit/recipes';
+import { renderPlan } from '@gw2-ai/core';
 import { loadPlan, savePlan } from '@gw2-ai/core/plans';
 import { character, findItem, keyInfo, planHoldings, raiseGold, shoppingList } from '../src/tools.js';
 
@@ -27,7 +28,7 @@ function setup(permissions: string[], market: { ore?: number; ingot?: number; re
     const url = new URL(String(input));
     calls.push(url.pathname);
     expect(url.searchParams.get('access_token') === KEY).toBe(
-      /^\/v2\/(account|characters|tokeninfo|commerce\/delivery)/.test(url.pathname),
+      /^\/v2\/(account|characters|tokeninfo|commerce\/delivery|commerce\/transactions)/.test(url.pathname),
     );
     const ids = (url.searchParams.get('ids') ?? '').split(',').filter(Boolean).map(Number);
     const ok = (body: unknown) => new Response(JSON.stringify(body));
@@ -44,6 +45,11 @@ function setup(permissions: string[], market: { ore?: number; ingot?: number; re
         return ok([{ id: 1, value: 100 }]);
       case '/v2/commerce/delivery':
         return ok({ coins: 12_345, items: [] });
+      case '/v2/commerce/transactions/current/buys':
+        expect(url.searchParams.get('page_size')).toBe('200');
+        return ok([{ id: 1, item_id: 19684, price: 150, quantity: 20, created: '2026-11-01T00:00:00Z' }]);
+      case '/v2/commerce/transactions/current/sells':
+        return ok([{ id: 2, item_id: 46747, price: 90, quantity: 4, created: '2026-11-01T00:00:00Z' }]);
       case '/v2/account/legendaryarmory':
         return ok([]);
       case '/v2/characters':
@@ -183,6 +189,30 @@ describe('planHoldings', () => {
       expect((await loadPlan('lump', dir)).holdings.items).toEqual({ 19700: 150, 46742: 1 });
     }));
 
+  it('counts open buy orders and points out materials listed for sale', () =>
+    inTempDir(async (dir) => {
+      const plan = planFromData({
+        version: 1, rootId: 46742, maxDepth: 10, fetchedAt: '2026-11-26T00:00:00.000Z',
+        items: { 46742: { name: 'Lump of Mithrillium' }, 19684: { name: 'Mithril Ingot', sell: 200 }, 46747: { name: 'Thermocatalytic Reagent', sell: 10 } },
+        searched: [46742, 19684, 46747],
+        recipes: { 46742: [{ source: 'crafting', id: 1, disciplines: ['Armorsmith'], min_rating: 450, output_count: 1, ingredients: [{ type: 'Item', id: 19684, count: 50 }, { type: 'Item', id: 46747, count: 10 }] }] },
+        currencies: {}, guildUpgrades: {}, vendors: {}, vendorUnmatched: [], status: {},
+      });
+      await savePlan('orders', plan, dir);
+      const out = await planHoldings(setup(['account', 'inventories', 'tradingpost']).client, 'orders', dir);
+      expect(out).not.toContain('needs `tradingpost`');
+      const saved = await loadPlan('orders', dir);
+      expect(saved.holdings.orders).toEqual({
+        buys: { 19684: [{ quantity: 20, price: 150 }] },
+        sells: { 46747: [{ quantity: 4, price: 90 }] },
+        market: { 19684: { buy: 1, sell: 200 }, 46747: { buy: 1, sell: 10 } },
+      });
+      const md = renderPlan(saved, { sections: ['buy'] });
+      expect(md).toContain('- [ ] 30 × Mithril Ingot (20 on buy order, of 50)');
+      expect(md).toContain('  - On buy order: 20 at 1s 50c (the top buy order).');
+      expect(md).toContain('  - Listed for sale, not counted here: 4 at 90c (undercut: the lowest listing is 10c).');
+    }));
+
   it('needs inventories', async () => {
     await expect(planHoldings(setup(['account']).client, 'lump')).rejects.toThrow(/gw2_plan_holdings needs the `inventories`/);
   });
@@ -270,7 +300,8 @@ describe('raiseGold', () => {
       const md = await raiseGold(client, { plan: 'lump' }, dir);
       expect(md).toContain('nothing needs selling');
       expect(md).not.toContain('- [ ] Sell');
-      expect(calls).not.toContain('/v2/commerce/delivery');
+      // The plan's holdings are read, but nothing about what could be sold.
+      expect(calls).not.toContain('/v2/recipes/search');
       expect(await raiseGold(client, { plan: 'lump', targetGold: 1, method: 'list' }, dir)).toContain('- [ ] Sell');
     }));
 });

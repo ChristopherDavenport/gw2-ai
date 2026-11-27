@@ -69,6 +69,39 @@ export interface PlanHoldings {
   wallet: Record<number, number>;
   /** ISO time the holdings were read; absent when never read. */
   fetchedAt?: string;
+  /**
+   * The player's open trading post orders, by item id. Absent when not read.
+   * Units on buy order count toward the plan after owned ones, since their
+   * gold is already paid. Units listed for sale are not counted.
+   */
+  orders?: PlanOrders;
+}
+
+export interface PlanOrders {
+  buys: Record<number, PlanOrder[]>;
+  sells: Record<number, PlanOrder[]>;
+  /**
+   * Item id → the top buy order and lowest sell listing when the orders were
+   * read, in copper, to tell whether the player's are outbid or undercut.
+   */
+  market?: Record<number, { buy?: number; sell?: number }>;
+}
+
+export interface PlanOrder {
+  quantity: number;
+  /** Copper per unit. */
+  price: number;
+}
+
+/** Units of an item the player has on open buy orders. */
+export const onOrder = (holdings: PlanHoldings, id: number): number =>
+  (holdings.orders?.buys[id] ?? []).reduce((sum, o) => sum + o.quantity, 0);
+
+/** Holdings with units on buy order counted as owned, for deciding routes. */
+function withOrdersOwned(holdings: PlanHoldings): PlanHoldings {
+  const items = { ...holdings.items };
+  for (const id of Object.keys(holdings.orders?.buys ?? {}).map(Number)) items[id] = (items[id] ?? 0) + onOrder(holdings, id);
+  return { ...holdings, items };
 }
 
 export interface PlanResearch {
@@ -158,7 +191,9 @@ export interface PlanStep {
   need: number;
   /** Of those, units covered by holdings or the wallet. */
   owned: number;
-  /** Units still to get: need − owned, 0 when done. */
+  /** Of those, units covered by the player's open buy orders, after `owned`. */
+  ordered: number;
+  /** Units still to get: need − owned − ordered, 0 when done. */
   count: number;
   done: boolean;
   /** The chosen route; absent when `action` is `have`. */
@@ -440,6 +475,7 @@ export function parsePlan(value: unknown): CraftingPlan {
     !isRecord(p.holdings) ||
     !isRecord(p.holdings.items) ||
     !isRecord(p.holdings.wallet) ||
+    (p.holdings.orders !== undefined && !(isRecord(p.holdings.orders) && isRecord(p.holdings.orders.buys) && isRecord(p.holdings.orders.sells))) ||
     (p.settings !== undefined && !isRecord(p.settings))
   ) {
     throw new Error('Not a crafting plan.');
@@ -632,15 +668,17 @@ function chooseRoutes(plan: CraftingPlan): (key: StepKey) => Choice {
  */
 export function solvePlan(plan: CraftingPlan): SolvedPlan {
   const { goals, steps, coin } = solveDecided(plan);
-  const owns = planSettings(plan).useOwnMaterials && Object.keys(plan.holdings.items).length > 0;
-  const fullCoin = owns ? solveDecided({ ...plan, holdings: { ...plan.holdings, items: {} } }).coin : coin;
+  const { orders: _orders, ...holdings } = plan.holdings;
+  const owns = planSettings(plan).useOwnMaterials && Object.keys(withOrdersOwned(plan.holdings).items).length > 0;
+  const fullCoin = owns ? solveDecided({ ...plan, holdings: { ...holdings, items: {} } }).coin : coin;
   return { goals, steps, coin, fullCoin };
 }
 
 function solveDecided(plan: CraftingPlan): Solution {
   const choose = chooseRoutes(plan);
   const solve = (decisions: Decisions, skip?: ReadonlySet<StepKey>) => solveSteps(plan, choose, decisions, skip);
-  return solve(decide(plan, choose, solve));
+  // Routes follow what is on its way as well as what is held.
+  return solve(decide({ ...plan, holdings: withOrdersOwned(plan.holdings) }, choose, solve));
 }
 
 /** One pass over the graph, with the demand each step key ended up with. */
@@ -697,7 +735,9 @@ function solveSteps(plan: CraftingPlan, choose: (key: StepKey) => Choice, decisi
             : 0;
     // A goal is what's being made, so owned copies only cover other steps' use of it.
     const owned = Math.min(stock, need - (wanted.get(key) ?? 0));
-    const count = isDone ? 0 : need - owned;
+    const coming = kind === 'Item' && settings.useOwnMaterials ? onOrder(plan.holdings, id) : 0;
+    const ordered = Math.min(coming, need - (wanted.get(key) ?? 0) - owned);
+    const count = isDone ? 0 : need - owned - ordered;
     const times = count === 0 ? 0 : Math.max(1, Math.ceil(count / (route.output > 0 ? route.output : 1) - 1e-9));
     const inputs =
       times === 0 ? [] : route.pool ? poolInputs(data, route, times, decisions.fills.get(key)) : route.inputs.map((i) => ({ ...i, count: i.count * times }));
@@ -732,6 +772,7 @@ function solveSteps(plan: CraftingPlan, choose: (key: StepKey) => Choice, decisi
       action: count === 0 ? 'have' : route.action,
       need,
       owned,
+      ordered,
       count,
       done: isDone,
       ...(count === 0 ? {} : { route }),
@@ -892,5 +933,8 @@ export function withHoldings(plan: CraftingPlan, holdings: PlanHoldings): Crafti
   for (const [id, value] of Object.entries(holdings.wallet)) {
     if (Number(id) === 1 || plan.data.currencies[Number(id)] !== undefined) wallet[Number(id)] = value;
   }
-  return { ...plan, holdings: { items, wallet, ...(holdings.fetchedAt ? { fetchedAt: holdings.fetchedAt } : {}) } };
+  const kept = <T>(byId: Record<number, T>) => Object.fromEntries(Object.entries(byId).filter(([id]) => used.has(Number(id))));
+  const { buys, sells, market } = holdings.orders ?? { buys: {}, sells: {} };
+  const orders = holdings.orders ? { orders: { buys: kept(buys), sells: kept(sells), ...(market ? { market: kept(market) } : {}) } } : {};
+  return { ...plan, holdings: { items, wallet, ...(holdings.fetchedAt ? { fetchedAt: holdings.fetchedAt } : {}), ...orders } };
 }

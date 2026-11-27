@@ -195,10 +195,10 @@ export function createServer(): McpServer {
     {
       title: 'Count holdings toward a crafting plan',
       description:
-        'Read the account\'s bank, shared slots, character bags, material storage and wallet into a saved crafting plan (made with gw2_plan_create on gw2-data), ' +
-        'so its remaining counts and cost leave out what the player already has. Returns the new totals, open recipe decisions and the steps now covered. ' +
+        'Read the account\'s bank, shared slots, character bags, material storage, wallet, trading post delivery box and open trading post orders into a saved crafting plan (made with gw2_plan_create on gw2-data), ' +
+        'so its remaining counts and cost leave out what the player already has or has on buy order; materials they have listed for sale are pointed out, not counted. Returns the new totals, open recipe decisions and the steps now covered. ' +
         'Call it right after creating a plan, and again after the player has gathered, bought or crafted something. Changes only the local plan file. ' +
-        'Needs `inventories` (`characters` adds bags, `wallet` adds balances). Cost: ~6 API calls.',
+        'Needs `inventories` (`characters` adds bags, `wallet` adds balances, `tradingpost` adds the delivery box and open orders). Cost: ~9 API calls.',
       inputSchema: { plan: z.string().min(1).max(80).describe('Saved plan name, e.g. "twilight".') },
       annotations: { readOnlyHint: false, destructiveHint: false, openWorldHint: true },
     },
